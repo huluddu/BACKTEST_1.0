@@ -4,49 +4,58 @@ from oauth2client.service_account import ServiceAccountCredentials
 import json
 
 # -----------------------------------------------------------
-# [설정] 구글 시트 제목 (URL에 있는 ID 대신 제목을 사용합니다)
-# 구글 시트 파일명을 'stock_strategies'로 꼭 맞춰주세요!
-SHEET_NAME = "stock_strategies" 
-
-# [설정] secrets.toml의 대괄호 이름과 정확히 일치해야 합니다.
-SECRETS_KEY = "gcp_service_account" 
+# [설정] secrets.toml에 있는 변수 이름들
+# 사용자님의 secrets.toml 구조에 딱 맞췄습니다.
+SECRET_KEY_NAME = "GCP_KEY"     # 인증 정보 (JSON)
+SHEET_URL_NAME = "SHEET_URL"    # 구글 시트 주소
 # -----------------------------------------------------------
 
 def _get_sheet_connection():
-    """Streamlit Secrets를 이용해 구글 시트에 연결"""
+    """Streamlit Secrets의 URL을 이용해 구글 시트에 바로 연결"""
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
     
-    # 1. Secrets 확인
-    if SECRETS_KEY not in st.secrets:
-        st.error(f"⚠️ secrets.toml 파일에 [{SECRETS_KEY}] 섹션이 없습니다.")
+    # 1. Secrets에 필요한 키가 있는지 확인
+    if SECRET_KEY_NAME not in st.secrets:
+        st.error(f"⚠️ secrets.toml에 '{SECRET_KEY_NAME}'가 없습니다.")
+        return None
+    if SHEET_URL_NAME not in st.secrets:
+        st.error(f"⚠️ secrets.toml에 '{SHEET_URL_NAME}'가 없습니다.")
         return None
 
     try:
-        # 2. Secrets 내용을 딕셔너리로 가져오기
-        key_dict = dict(st.secrets[SECRETS_KEY])
+        # 2. 인증 정보 가져오기 (문자열로 된 JSON을 파싱)
+        secret_value = st.secrets[SECRET_KEY_NAME]
         
-        # private_key의 줄바꿈 문자(\n) 처리 (Streamlit이 자동 처리하지만 안전장치)
+        # 문자열이면 json 변환, 딕셔너리면 그대로 사용
+        if isinstance(secret_value, str):
+            key_dict = json.loads(secret_value)
+        else:
+            key_dict = dict(secret_value)
+        
+        # 줄바꿈 문자 처리 (\n)
         if "private_key" in key_dict:
             key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
         
-        # 3. 시트 열기
-        sheet = client.open(SHEET_NAME).sheet1
+        # 3. [핵심 변경] 이름이 아니라 'URL'로 바로 열기
+        target_url = st.secrets[SHEET_URL_NAME]
+        sheet = client.open_by_url(target_url).sheet1
+        
         return sheet
         
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"❌ 구글 시트를 찾을 수 없습니다: '{SHEET_NAME}'")
-        st.info("1. 구글 시트 제목을 정확히 'stock_strategies'로 변경했는지 확인하세요.")
-        st.info(f"2. '{key_dict.get('client_email')}' 이메일을 편집자로 초대했는지 확인하세요.")
-        return None
     except Exception as e:
-        st.error(f"❌ 구글 시트 연결 에러: {e}")
+        st.error(f"❌ 구글 시트 연결 실패: {e}")
+        st.info("💡 secrets.toml의 SHEET_URL 주소가 정확한지 확인해주세요.")
         return None
+
+# ========================================================
+# 아래는 기존 로직과 동일 (수정할 필요 없음)
+# ========================================================
 
 def load_saved_strategies():
     sheet = _get_sheet_connection()
@@ -73,14 +82,14 @@ def save_strategy_to_file(name, params):
     if sheet is None: return
 
     try:
-        # 헤더 확인 및 생성 (Name, Params)
+        # 헤더가 없으면 추가
         if not sheet.get_all_values():
             sheet.append_row(["Name", "Params"])
 
-        # 저장 로직
         try:
+            # 이름으로 셀 찾기
             cell = sheet.find(name)
-            # 이미 있으면 업데이트
+            # 있으면 업데이트
             params_str = json.dumps(params, ensure_ascii=False)
             sheet.update_cell(cell.row, 2, params_str)
         except gspread.exceptions.CellNotFound:
