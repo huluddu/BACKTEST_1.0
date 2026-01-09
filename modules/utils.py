@@ -45,17 +45,18 @@ def load_saved_strategies():
 def save_strategy_to_file(name, params):
     sheet = get_google_sheet()
     if not sheet: 
-        st.error("구글 시트 연결 실패. Secrets 설정을 확인하세요.")
-        return
+        st.error("❌ 구글 시트 연결 실패. Secrets 설정(GCP_KEY, SHEET_URL)을 확인하세요.")
+        return False # 실패 반환
     
     try:
         params_str = json.dumps(params, ensure_ascii=False)
-        # 시간 기록도 같이
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sheet.append_row([name, params_str, now])
         st.toast(f"✅ 구글 시트에 '{name}' 저장 완료!")
+        return True # 성공 반환
     except Exception as e:
-        st.error(f"저장 실패: {e}")
+        st.error(f"❌ 저장 중 오류 발생: {e}")
+        return False # 실패 반환
 
 # 4. 전략 삭제하기
 def delete_strategy_from_file(name):
@@ -83,3 +84,4 @@ def parse_choices(text, cast="int"):
         seen.add(v if cast != "str" else (v,))
         dedup.append(v)
     return dedup
+
