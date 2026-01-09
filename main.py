@@ -6,46 +6,6 @@ from plotly.subplots import make_subplots
 import random
 import google.generativeai as genai
 
-
-######################
-# main.py 맨 윗부분 (기존 코드 import 아래에 잠시 붙여넣으세요)
-import os
-import streamlit as st
-
-st.divider()
-st.error("🚨 [긴급 진단 모드] 파일 인식 상태 확인")
-
-# 1. 현재 실행 위치 확인
-current_dir = os.getcwd()
-st.write(f"📂 현재 실행 경로: `{current_dir}`")
-
-# 2. 파일 존재 여부 확인
-expected_path = os.path.join(current_dir, ".streamlit", "secrets.toml")
-if os.path.exists(expected_path):
-    st.success(f"✅ 파일 찾음: {expected_path}")
-else:
-    st.error(f"❌ 파일 못 찾음! 기대하는 위치: {expected_path}")
-    st.info("👉 'main.py'와 같은 폴더에 '.streamlit' 폴더가 있는지 확인하세요.")
-
-# 3. Streamlit이 읽어들인 키 목록 확인
-st.write("🔑 Streamlit이 인식한 Secrets 목록:")
-try:
-    keys = list(st.secrets.keys())
-    st.json(keys)
-    if "gcp_service_account" in keys:
-        st.success("✅ [gcp_service_account] 섹션이 인식되었습니다! 이제 저장됩니다.")
-    else:
-        st.error("❌ 파일은 있지만 [gcp_service_account] 섹션이 안 보입니다.")
-        st.warning("👉 secrets.toml 파일의 맨 첫 줄이 `[gcp_service_account]` 인지 확인하세요.")
-except Exception as e:
-    st.error("❌ secrets 파일을 아예 읽지 못했습니다. (형식 오류 가능성)")
-    st.write(e)
-
-st.divider()
-# 진단 코드 끝
-
-######################
-
 # 모듈 불러오기
 from modules.utils import load_saved_strategies, save_strategy_to_file, delete_strategy_from_file, parse_choices
 from modules.data_loader import get_data, get_fundamental_info
@@ -534,4 +494,5 @@ with tab4:
             with c2:
                 if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)):
                     st.rerun()
+
 
