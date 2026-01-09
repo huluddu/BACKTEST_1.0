@@ -5,9 +5,8 @@ import json
 
 # -----------------------------------------------------------
 # [설정] secrets.toml에 있는 변수 이름들
-# 사용자님의 secrets.toml 구조에 딱 맞췄습니다.
-SECRET_KEY_NAME = "GCP_KEY"     # 인증 정보 (JSON)
-SHEET_URL_NAME = "SHEET_URL"    # 구글 시트 주소
+SECRET_KEY_NAME = "GCP_KEY"     
+SHEET_URL_NAME = "SHEET_URL"    
 # -----------------------------------------------------------
 
 def _get_sheet_connection():
@@ -26,7 +25,7 @@ def _get_sheet_connection():
         return None
 
     try:
-        # 2. 인증 정보 가져오기 (문자열로 된 JSON을 파싱)
+        # 2. 인증 정보 가져오기
         secret_value = st.secrets[SECRET_KEY_NAME]
         
         # 문자열이면 json 변환, 딕셔너리면 그대로 사용
@@ -42,10 +41,9 @@ def _get_sheet_connection():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
         
-        # 3. [핵심 변경] 이름이 아니라 'URL'로 바로 열기
+        # 3. URL로 바로 열기
         target_url = st.secrets[SHEET_URL_NAME]
         sheet = client.open_by_url(target_url).sheet1
-        
         return sheet
         
     except Exception as e:
@@ -53,14 +51,10 @@ def _get_sheet_connection():
         st.info("💡 secrets.toml의 SHEET_URL 주소가 정확한지 확인해주세요.")
         return None
 
-# ========================================================
-# 아래는 기존 로직과 동일 (수정할 필요 없음)
-# ========================================================
-
+# (이하 load, save, delete 함수들은 그대로 두시면 됩니다.)
 def load_saved_strategies():
     sheet = _get_sheet_connection()
     if sheet is None: return {}
-
     try:
         records = sheet.get_all_records()
         strategies = {}
@@ -69,34 +63,23 @@ def load_saved_strategies():
             name = row.get('Name')
             params_str = row.get('Params')
             if name and params_str:
-                try:
-                    strategies[name] = json.loads(params_str)
-                except:
-                    continue
+                try: strategies[name] = json.loads(params_str)
+                except: continue
         return strategies
-    except Exception:
-        return {}
+    except: return {}
 
 def save_strategy_to_file(name, params):
     sheet = _get_sheet_connection()
     if sheet is None: return
-
     try:
-        # 헤더가 없으면 추가
-        if not sheet.get_all_values():
-            sheet.append_row(["Name", "Params"])
-
+        if not sheet.get_all_values(): sheet.append_row(["Name", "Params"])
         try:
-            # 이름으로 셀 찾기
             cell = sheet.find(name)
-            # 있으면 업데이트
             params_str = json.dumps(params, ensure_ascii=False)
             sheet.update_cell(cell.row, 2, params_str)
         except gspread.exceptions.CellNotFound:
-            # 없으면 추가
             params_str = json.dumps(params, ensure_ascii=False)
             sheet.append_row([name, params_str])
-
     except Exception as e:
         st.error(f"❌ 저장 실패: {e}")
         raise e
@@ -104,15 +87,11 @@ def save_strategy_to_file(name, params):
 def delete_strategy_from_file(name):
     sheet = _get_sheet_connection()
     if sheet is None: return
-
     try:
         cell = sheet.find(name)
         sheet.delete_rows(cell.row)
         st.success(f"🗑️ 삭제 완료: {name}")
-    except gspread.exceptions.CellNotFound:
-        st.warning("삭제할 전략이 시트에 없습니다.")
-    except Exception as e:
-        st.error(f"삭제 오류: {e}")
+    except: st.warning("삭제할 전략이 시트에 없습니다.")
 
 def parse_choices(text_input, dtype="str"):
     if not text_input: return []
