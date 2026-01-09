@@ -4,44 +4,39 @@ from oauth2client.service_account import ServiceAccountCredentials
 import json
 
 # -----------------------------------------------------------
-# [설정] Streamlit Secrets의 변수명 (수정 금지)
+# [설정] Streamlit Secrets 변수명
 SECRET_KEY_NAME = "GCP_KEY"     
 SHEET_URL_NAME = "SHEET_URL"    
 # -----------------------------------------------------------
 
 def _get_sheet_connection():
-    """Streamlit Secrets의 URL을 이용해 구글 시트에 바로 연결"""
+    """Streamlit Secrets의 URL을 이용해 구글 시트에 연결"""
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
     
-    # Secrets에 키가 있는지 확인
     if SECRET_KEY_NAME not in st.secrets:
-        st.error(f"⚠️ 설정 오류: Streamlit Secrets에 '{SECRET_KEY_NAME}'가 없습니다.")
+        st.error(f"⚠️ 설정 오류: Secrets에 '{SECRET_KEY_NAME}'가 없습니다.")
         return None
     if SHEET_URL_NAME not in st.secrets:
-        st.error(f"⚠️ 설정 오류: Streamlit Secrets에 '{SHEET_URL_NAME}'가 없습니다.")
+        st.error(f"⚠️ 설정 오류: Secrets에 '{SHEET_URL_NAME}'가 없습니다.")
         return None
 
     try:
-        # 인증 정보 가져오기
         secret_value = st.secrets[SECRET_KEY_NAME]
         
-        # 문자열(JSON String)로 되어 있다면 파싱, 딕셔너리면 그대로 사용
         if isinstance(secret_value, str):
             key_dict = json.loads(secret_value)
         else:
             key_dict = dict(secret_value)
         
-        # 줄바꿈 문자(\n) 처리 (필수)
         if "private_key" in key_dict:
             key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
         
-        # URL로 시트 열기
         target_url = st.secrets[SHEET_URL_NAME]
         sheet = client.open_by_url(target_url).sheet1
         return sheet
@@ -51,7 +46,7 @@ def _get_sheet_connection():
         return None
 
 # -----------------------------------------------------------
-# 저장/로드/삭제 함수 (기존 로직 유지)
+# [핵심 수정] 에러 이름을 쓰지 않는 안전한 방식으로 변경
 # -----------------------------------------------------------
 
 def load_saved_strategies():
@@ -79,30 +74,52 @@ def save_strategy_to_file(name, params):
         if not sheet.get_all_values():
             sheet.append_row(["Name", "Params"])
 
-        # 저장 로직
+        # 1. 먼저 해당 이름의 셀을 찾아봅니다.
+        cell = None
         try:
-            cell = sheet.find(name) # 이름 찾기
-            # 있으면 업데이트
-            params_str = json.dumps(params, ensure_ascii=False)
+            cell = sheet.find(name)
+        except Exception:
+            # 못 찾으면 에러가 나는데, 이걸 무시하고 cell을 None으로 둡니다.
+            cell = None
+
+        params_str = json.dumps(params, ensure_ascii=False)
+
+        # 2. 셀이 있으면(이미 저장된 전략) -> 업데이트
+        if cell:
+            # 해당 행의 2번째 열(Params)을 수정
             sheet.update_cell(cell.row, 2, params_str)
-        except gspread.exceptions.CellNotFound:
-            # 없으면 추가
-            params_str = json.dumps(params, ensure_ascii=False)
+            # st.success(f"✅ 전략 업데이트 완료: {name}") # (메시지는 main.py에서 띄움)
+            
+        # 3. 셀이 없으면(새로운 전략) -> 추가
+        else:
             sheet.append_row([name, params_str])
+            # st.success(f"✅ 새 전략 저장 완료: {name}")
 
     except Exception as e:
         st.error(f"❌ 저장 실패: {e}")
+        # 디버깅을 위해 에러 내용을 화면에 출력
+        st.write(e)
         raise e
 
 def delete_strategy_from_file(name):
     sheet = _get_sheet_connection()
     if sheet is None: return
+
     try:
-        cell = sheet.find(name)
-        sheet.delete_rows(cell.row)
-        st.success(f"🗑️ 삭제 완료: {name}")
-    except: 
-        st.warning("삭제할 전략이 시트에 없습니다.")
+        cell = None
+        try:
+            cell = sheet.find(name)
+        except Exception:
+            cell = None
+
+        if cell:
+            sheet.delete_rows(cell.row)
+            st.success(f"🗑️ 삭제 완료: {name}")
+        else:
+            st.warning("삭제할 전략이 시트에 없습니다.")
+
+    except Exception as e:
+        st.error(f"삭제 오류: {e}")
 
 def parse_choices(text_input, dtype="str"):
     if not text_input: return []
