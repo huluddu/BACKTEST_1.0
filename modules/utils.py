@@ -1,56 +1,85 @@
 import streamlit as st
 import json
 import gspread
+import re
+import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 
-# Streamlit Secrets에서 설정값 가져오기
+# 1. 구글 시트 연결 함수
 def get_google_sheet():
     try:
-        # 1. 인증 정보 가져오기
+        # Secrets에서 키 가져오기
         key_dict = json.loads(st.secrets["GCP_KEY"])
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
         
-        # 2. 시트 열기
+        # 시트 주소로 열기
         sheet_url = st.secrets["SHEET_URL"]
         sheet = client.open_by_url(sheet_url).sheet1
         return sheet
     except Exception as e:
-        st.error(f"구글 시트 연결 실패: {e}")
+        # 연결 실패 시 에러는 로그로만 남기고 None 반환 (앱이 안 죽게)
+        print(f"구글 시트 연결 오류: {e}")
         return None
 
+# 2. 전략 불러오기 (구글 시트 -> 앱)
 def load_saved_strategies():
     sheet = get_google_sheet()
-    if not sheet: return {}
+    if not sheet: return {} # 연결 실패하면 빈 딕셔너리 반환
+    
     try:
-        # 모든 기록 가져오기
         data = sheet.get_all_records()
         strategies = {}
         for row in data:
-            # 엑셀의 각 줄을 딕셔너리로 변환
             name = row.get("StrategyName")
-            if name:
-                # JSON 문자열로 저장된 파라미터를 다시 딕셔너리로
-                params = json.loads(row.get("Params"))
-                strategies[name] = params
+            if name and row.get("Params"):
+                try:
+                    params = json.loads(str(row.get("Params")))
+                    strategies[name] = params
+                except: continue
         return strategies
     except: return {}
 
+# 3. 전략 저장하기 (앱 -> 구글 시트)
 def save_strategy_to_file(name, params):
     sheet = get_google_sheet()
-    if not sheet: return
+    if not sheet: 
+        st.error("구글 시트 연결 실패. Secrets 설정을 확인하세요.")
+        return
     
     try:
-        # 기존에 같은 이름이 있으면 삭제하고 추가 (혹은 업데이트)
-        # 편의상 그냥 아래에 추가하는 로직
         params_str = json.dumps(params, ensure_ascii=False)
-        sheet.append_row([name, params_str, str(datetime.datetime.now())])
-        st.toast(f"✅ 전략 '{name}' 구글 시트에 저장 완료!")
+        # 시간 기록도 같이
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([name, params_str, now])
+        st.toast(f"✅ 구글 시트에 '{name}' 저장 완료!")
     except Exception as e:
         st.error(f"저장 실패: {e}")
 
+# 4. 전략 삭제하기
 def delete_strategy_from_file(name):
-    # 삭제는 로직이 복잡해져서 (행을 찾아서 지워야 함)
-    # 초보자 단계에서는 '구글 시트 가서 직접 지우세요'라고 안내하는 게 안전합니다.
-    st.info("🗑️ 삭제는 구글 스프레드시트에서 직접 행을 지워주세요.")
+    st.info("🗑️ 구글 시트 연동 모드에서는 엑셀 파일에서 직접 행을 삭제해주세요.")
+    return False
+
+# 5. [중요] 기존 헬퍼 함수 (이게 없으면 에러 남!)
+def parse_choices(text, cast="int"):
+    if text is None: return []
+    tokens = [t for t in re.split(r"[,\s]+", str(text).strip()) if t != ""]
+    if not tokens: return []
+    def _to_bool(s): return s.strip().lower() in ("1", "true", "t", "y", "yes")
+    out = []
+    for t in tokens:
+        try:
+            if cast == "int": out.append("same" if str(t).lower()=="same" else int(t))
+            elif cast == "float": out.append(float(t))
+            elif cast == "bool": out.append(_to_bool(t))
+            else: out.append(str(t))
+        except: continue
+    seen = set()
+    dedup = []
+    for v in out:
+        if (v if cast != "str" else (v,)) in seen: continue
+        seen.add(v if cast != "str" else (v,))
+        dedup.append(v)
+    return dedup
