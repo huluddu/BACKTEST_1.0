@@ -1,87 +1,128 @@
 import streamlit as st
-import json
 import gspread
-import re
-import datetime
 from oauth2client.service_account import ServiceAccountCredentials
+import json
 
-# 1. 구글 시트 연결 함수
-def get_google_sheet():
-    try:
-        # Secrets에서 키 가져오기
-        key_dict = json.loads(st.secrets["GCP_KEY"])
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
-        client = gspread.authorize(creds)
-        
-        # 시트 주소로 열기
-        sheet_url = st.secrets["SHEET_URL"]
-        sheet = client.open_by_url(sheet_url).sheet1
-        return sheet
-    except Exception as e:
-        # 연결 실패 시 에러는 로그로만 남기고 None 반환 (앱이 안 죽게)
-        print(f"구글 시트 연결 오류: {e}")
+# -----------------------------------------------------------
+# [설정] 구글 시트 이름
+SHEET_NAME = "stock_strategies" 
+
+# [중요] secrets.toml에 적은 헤더 이름 (대괄호 안에 적은 것)
+# 예: [gcp_service_account] 라고 적으셨으면 아래와 같이 씁니다.
+# 만약 [google_sheets] 라고 적으셨다면 st.secrets["google_sheets"]로 바꿔야 합니다.
+SECRETS_KEY = "gcp_service_account" 
+# -----------------------------------------------------------
+
+def _get_sheet_connection():
+    """Streamlit Secrets를 이용해 구글 시트에 연결"""
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    # 1. Secrets에 해당 키가 있는지 확인
+    if SECRETS_KEY not in st.secrets:
+        st.error(f"⚠️ Streamlit Secrets에서 '{SECRETS_KEY}' 항목을 찾을 수 없습니다.")
+        st.info("secrets.toml 파일의 대괄호[] 제목과 코드의 SECRETS_KEY가 일치하는지 확인해주세요.")
         return None
 
-# 2. 전략 불러오기 (구글 시트 -> 앱)
-def load_saved_strategies():
-    sheet = get_google_sheet()
-    if not sheet: return {} # 연결 실패하면 빈 딕셔너리 반환
-    
     try:
-        data = sheet.get_all_records()
-        strategies = {}
-        for row in data:
-            name = row.get("StrategyName")
-            if name and row.get("Params"):
-                try:
-                    params = json.loads(str(row.get("Params")))
-                    strategies[name] = params
-                except: continue
-        return strategies
-    except: return {}
+        # 2. 파일 경로가 아니라, Secrets에 있는 딕셔너리(JSON 내용)를 바로 사용
+        # .from_json_keyfile_name() 대신 .from_json_keyfile_dict()를 사용해야 함
+        key_dict = dict(st.secrets[SECRETS_KEY])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
+        
+        client = gspread.authorize(creds)
+        
+        # 3. 시트 열기
+        sheet = client.open(SHEET_NAME).sheet1
+        return sheet
+        
+    except Exception as e:
+        st.error(f"❌ 구글 시트 연결 실패: {e}")
+        st.info("💡 구글 시트 제목이 정확한지, 그리고 client_email 주소를 시트에 '편집자'로 초대했는지 확인해주세요.")
+        return None
 
-# 3. 전략 저장하기 (앱 -> 구글 시트)
-def save_strategy_to_file(name, params):
-    sheet = get_google_sheet()
-    if not sheet: 
-        st.error("❌ 구글 시트 연결 실패. Secrets 설정(GCP_KEY, SHEET_URL)을 확인하세요.")
-        return False # 실패 반환
-    
+def load_saved_strategies():
+    """구글 시트에서 전략 데이터를 불러옵니다."""
+    sheet = _get_sheet_connection()
+    if sheet is None:
+        return {}
+
     try:
-        params_str = json.dumps(params, ensure_ascii=False)
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        sheet.append_row([name, params_str, now])
-        st.toast(f"✅ 구글 시트에 '{name}' 저장 완료!")
-        return True # 성공 반환
+        records = sheet.get_all_records()
+        strategies = {}
+        
+        for row in records:
+            # 빈 행 스킵
+            if not row: continue
+            
+            # 시트 헤더가 Name, Params라고 가정
+            name = row.get('Name')
+            params_str = row.get('Params')
+            
+            if name and params_str:
+                try:
+                    params = json.loads(params_str)
+                    strategies[name] = params
+                except:
+                    continue
+        return strategies
+
+    except Exception as e:
+        # 아직 데이터가 없거나 헤더 문제일 경우 빈 딕셔너리 반환
+        return {}
+
+def save_strategy_to_file(name, params):
+    """구글 시트에 전략을 저장(추가/업데이트)합니다."""
+    sheet = _get_sheet_connection()
+    if sheet is None: return
+
+    try:
+        # 1. 헤더가 없는 경우 추가 (첫 실행 대비)
+        if not sheet.get_all_values():
+            sheet.append_row(["Name", "Params"])
+
+        # 2. 이름 검색 후 업데이트 또는 추가
+        try:
+            cell = sheet.find(name)
+            # 이미 있으면 업데이트 (2번째 열 = Params)
+            params_str = json.dumps(params, ensure_ascii=False)
+            sheet.update_cell(cell.row, 2, params_str)
+            
+        except gspread.exceptions.CellNotFound:
+            # 없으면 새로 추가
+            params_str = json.dumps(params, ensure_ascii=False)
+            sheet.append_row([name, params_str])
+
     except Exception as e:
         st.error(f"❌ 저장 중 오류 발생: {e}")
-        return False # 실패 반환
+        raise e
 
-# 4. 전략 삭제하기
 def delete_strategy_from_file(name):
-    st.info("🗑️ 구글 시트 연동 모드에서는 엑셀 파일에서 직접 행을 삭제해주세요.")
-    return False
+    """구글 시트에서 전략을 삭제합니다."""
+    sheet = _get_sheet_connection()
+    if sheet is None: return
 
-# 5. [중요] 기존 헬퍼 함수 (이게 없으면 에러 남!)
-def parse_choices(text, cast="int"):
-    if text is None: return []
-    tokens = [t for t in re.split(r"[,\s]+", str(text).strip()) if t != ""]
-    if not tokens: return []
-    def _to_bool(s): return s.strip().lower() in ("1", "true", "t", "y", "yes")
-    out = []
-    for t in tokens:
+    try:
+        cell = sheet.find(name)
+        sheet.delete_rows(cell.row)
+        st.success(f"🗑️ 구글 시트: '{name}' 삭제 완료!")
+    except gspread.exceptions.CellNotFound:
+        st.warning("삭제할 전략을 시트에서 찾을 수 없습니다.")
+    except Exception as e:
+        st.error(f"삭제 중 오류: {e}")
+
+def parse_choices(text_input, dtype="str"):
+    """그리드 서치용 파싱 함수 (변경 없음)"""
+    if not text_input: return []
+    parts = [p.strip() for p in text_input.split(',')]
+    results = []
+    for p in parts:
         try:
-            if cast == "int": out.append("same" if str(t).lower()=="same" else int(t))
-            elif cast == "float": out.append(float(t))
-            elif cast == "bool": out.append(_to_bool(t))
-            else: out.append(str(t))
+            if dtype == "int": results.append(int(p))
+            elif dtype == "float": results.append(float(p))
+            elif dtype == "bool": results.append(p.lower() == "true")
+            else: results.append(p)
         except: continue
-    seen = set()
-    dedup = []
-    for v in out:
-        if (v if cast != "str" else (v,)) in seen: continue
-        seen.add(v if cast != "str" else (v,))
-        dedup.append(v)
-    return dedup
-
+    return sorted(list(set(results)), key=lambda x: (isinstance(x, bool), x))
