@@ -98,12 +98,13 @@ with st.sidebar:
         except: st.error("모델 로드 실패")
     
     st.divider()
-    with st.expander("💾 전략 저장/삭제"):
+with st.expander("💾 전략 저장/삭제"):
         save_name = st.text_input("새 전략 이름 입력")
         
         if st.button("현재 설정 저장하기"):
             if save_name:
                 keys_to_save = [
+                    # ... (기존 키 리스트 그대로 둠) ...
                     "signal_ticker_input", "trade_ticker_input", "market_ticker_input",
                     "buy_operator", "sell_operator", "strategy_behavior",
                     "ma_buy", "ma_sell", 
@@ -117,9 +118,15 @@ with st.sidebar:
                     "use_rsi_filter", "rsi_period", "rsi_max"
                 ]
                 params = {k: st.session_state.get(k) for k in keys_to_save}
-                save_strategy_to_file(save_name, params)
-                st.session_state["preset_name_selector"] = save_name
-                st.rerun()
+                
+                # [수정된 부분] 성공 여부(success)를 확인하고 새로고침
+                success = save_strategy_to_file(save_name, params)
+                if success:
+                    st.session_state["preset_name_selector"] = save_name
+                    # 잠시 대기 후 리런 (선택사항)
+                    import time
+                    time.sleep(1) 
+                    st.rerun()
             else:
                 st.error("전략 이름을 입력해주세요!")
         
@@ -491,6 +498,7 @@ with tab4:
                 if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)):
 
                     st.rerun()
+
 
 
 
