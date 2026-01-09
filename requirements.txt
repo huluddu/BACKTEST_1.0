@@ -6,3 +6,5 @@ plotly
 pykrx
 google-generativeai
 setuptools
+gspread
+oauth2client
