@@ -465,13 +465,13 @@ with tab4:
         cand_off_l = st.text_input("추세 Long Offset", "1, 5, 10, 20, 50")
         
         st.divider()
-        cand_stop = st.text_input("손절(%) 후보 (0=미사용)", "0, 5, 10")
-        cand_take = st.text_input("익절(%) 후보", "0, 10, 20")
+        cand_stop = st.text_input("손절(%) 후보 (0=미사용)", "0, 15, 25, 35")
+        cand_take = st.text_input("익절(%) 후보", "0, 15, 25, 35")
         
         # [추가됨] ATR 실험 설정
         st.markdown("##### 📉 ATR 손절 실험")
         cand_use_atr = st.text_input("ATR 사용 여부", "False, True")
-        cand_atr_mult = st.text_input("ATR 배수 후보", "1.5, 2.0, 2.5, 3.0")
+        cand_atr_mult = st.text_input("ATR 배수 후보", "2, 3, 4")
 
     n_trials = st.number_input("시도 횟수", 10, 500, 50)
     split_ratio = st.slider("Train 비율", 0.5, 0.9, 0.7)
@@ -524,3 +524,4 @@ with tab4:
             with c2:
                 if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)):
                     st.rerun()
+
