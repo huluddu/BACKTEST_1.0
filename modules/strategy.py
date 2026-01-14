@@ -33,7 +33,7 @@ def calculate_indicators(close_data, rsi_period):
     rsi = 100 - (100 / (1 + rs))
     return rsi.to_numpy()
 
-# [추가됨] ATR 계산 함수 (기본 14일)
+# [기존 유지] ATR 계산 함수
 def calculate_atr(df, period=14):
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
@@ -54,11 +54,10 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     
     if sig.empty or trd.empty: return None, None, None, None, None, None
     
-    # [추가됨] ATR 계산 (매매 대상 티커 기준)
+    # [기존 유지] ATR 계산
     trd["ATR"] = calculate_atr(trd, period=14)
 
     sig = sig.rename(columns={"Close": "Close_sig", "Open":"Open_sig", "High":"High_sig", "Low":"Low_sig"})[["Date", "Close_sig", "Open_sig", "High_sig", "Low_sig"]]
-    # ATR 컬럼 포함
     trd = trd.rename(columns={"Open": "Open_trd", "High": "High_trd", "Low": "Low_trd", "Close": "Close_trd"})
     
     base = pd.merge(sig, trd, on="Date", how="inner")
@@ -141,12 +140,18 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 trend_ok = df["MA_SHORT"].iloc[i - int(offset_compare_short)] >= df["MA_LONG"].iloc[i - int(offset_compare_long)]
 
             buy_base = (cl_b > ma_b) if (buy_operator == ">") else (cl_b < ma_b)
-            sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
+            
+            # [수정] 매도 부호가 OFF면 매도 조건은 무조건 False
+            if sell_operator == "OFF":
+                sell_ok = False
+                sell_cond_str = "매도 조건 OFF (익절/손절만 작동)"
+            else:
+                sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
+                sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
+                sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
             
             buy_ok = (buy_base and trend_ok) if use_trend_in_buy else buy_base
-            sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
             cond_str = f"종가 {cl_b:.2f} {buy_operator} 이평 {ma_b:.2f}"
-            sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
 
         final_buy = buy_ok and market_ok
         st.subheader(f"📌 시그널 ({ref_date})")
@@ -214,6 +219,9 @@ def summarize_signal_today(df, p):
         def _check(i, type_):
             if i < 60: return False
             try:
+                # [수정] 매도 OFF 처리
+                if type_ == 'sell' and sell_op == "OFF": return False
+
                 trend_ok = True
                 if (use_trend_buy or use_trend_sell) and "MA_COMP_S" in df.columns:
                     idx_s = i - off_comp_s
@@ -285,13 +293,12 @@ def summarize_signal_today(df, p):
     except Exception as e:
         return {"label": "오류", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
-# --- 백테스트 함수 (ATR 기능 추가됨) ---
+# --- 백테스트 함수 ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
                   use_rsi_filter=False, rsi_period=14, rsi_min=30, rsi_max=70,
                   use_market_filter=False, x_mkt=None, ma_mkt_arr=None,
                   use_bollinger=False, bb_period=20, bb_std=2.0, 
                   bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈",
-                  # [추가됨] ATR 파라미터
                   use_atr_stop=False, atr_multiplier=2.0):
     n = len(base)
     if n == 0: return {}
@@ -301,7 +308,6 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     ma_l_arr = ma_dict_sig.get(int(ma_compare_long)) if ma_compare_long else None
     rsi_arr = calculate_indicators(x_sig, int(rsi_period)) if use_rsi_filter else None
     
-    # [추가됨] ATR 배열 추출
     atr_arr = base["ATR"].to_numpy(dtype=float) if "ATR" in base.columns else np.zeros(n)
     
     bb_up, bb_mid, bb_lo = None, None, None
@@ -342,7 +348,12 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
             t_ok = True
             if ma_s_arr is not None: t_ok = ma_s_arr[i-int(offset_compare_short)] >= ma_l_arr[i-int(offset_compare_long)]
             buy_cond = ((cl_b > ma_b) if buy_operator == ">" else (cl_b < ma_b)) and (t_ok if use_trend_in_buy else True)
-            sell_cond = ((cl_s < ma_s) if sell_operator == "<" else (cl_s > ma_s)) and ((not t_ok) if use_trend_in_sell else True)
+            
+            # [수정] 매도 OFF 처리
+            if sell_operator == "OFF":
+                sell_cond = False
+            else:
+                sell_cond = ((cl_s < ma_s) if sell_operator == "<" else (cl_s > ma_s)) and ((not t_ok) if use_trend_in_sell else True)
 
         if buy_cond and use_rsi_filter and rsi_arr[i-1] > rsi_max: buy_cond = False
         if buy_cond and use_market_filter and x_mkt[i] < ma_mkt_arr[i]: buy_cond = False
@@ -351,12 +362,9 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         sold_today = False 
 
         if position > 0:
-            # [수정] ATR 손절 또는 고정 % 손절 확인
             current_stop_price = 0.0
             
-            if use_atr_stop and atr_arr[i-hold_days] > 0: # 진입 시점의 ATR 사용 (i-hold_days가 대략 진입시점 인덱스)
-                 # *정확한 진입 인덱스를 위해 hold_days 활용*
-                 # ATR은 변동적이므로 진입 당시의 변동폭으로 고정하는 것이 일반적
+            if use_atr_stop and atr_arr[i-hold_days] > 0: 
                  entry_idx = i - hold_days
                  if entry_idx >= 0:
                      atr_val = atr_arr[entry_idx]
@@ -364,13 +372,10 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
             elif stop_loss_pct > 0:
                 current_stop_price = entry_price * (1 - stop_loss_pct / 100)
             
-            # 손절 체크
             if current_stop_price > 0 and low_today <= current_stop_price:
                 stop_hit = True
-                # 시가보다 손절가가 낮으면 시가에 팔림 vs 갭락이면 시가, 장중이면 손절가
                 exec_price = open_today if open_today < current_stop_price else current_stop_price
             
-            # 익절 체크
             if take_profit_pct > 0 and not stop_hit:
                 tp_price = entry_price * (1 + take_profit_pct / 100)
                 if high_today >= tp_price: 
@@ -476,7 +481,6 @@ def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, sp
             "strategy_behavior": strategy_behavior, "min_hold_days": min_hold_days, "fee_bps": fee_bps, "slip_bps": slip_bps,
             "use_trend_in_buy": p.get('use_trend_in_buy', True), "use_trend_in_sell": p.get('use_trend_in_sell', False),
             "buy_operator": p.get('buy_operator', '>'), "sell_operator": p.get('sell_operator', '<'),
-            # [추가됨] 최적화 루프에 ATR 파라미터 전달
             "use_atr_stop": p.get('use_atr_stop', False), "atr_multiplier": p.get('atr_multiplier', 2.0)
         }
 
@@ -502,7 +506,6 @@ def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, sp
             "use_trend_in_buy": p.get('use_trend_in_buy'), "use_trend_in_sell": p.get('use_trend_in_sell'),
             "ma_compare_short": p.get('ma_compare_short'), "ma_compare_long": p.get('ma_compare_long'), "offset_compare_short": p.get('offset_compare_short'), "offset_compare_long": p.get('offset_compare_long'),
             "stop_loss_pct": p.get('stop_loss_pct'), "take_profit_pct": p.get('take_profit_pct'),
-            # [추가됨] 결과 데이터프레임 컬럼 추가
             "use_atr_stop": p.get('use_atr_stop'), "atr_multiplier": p.get('atr_multiplier')
         }
         results.append(row)
@@ -523,7 +526,6 @@ def apply_opt_params(row):
             "offset_compare_long": int(row["offset_compare_long"]),
             "stop_loss_pct": float(row["stop_loss_pct"]),
             "take_profit_pct": float(row["take_profit_pct"]),
-            # [추가됨] ATR 설정 적용
             "use_atr_stop": bool(row["use_atr_stop"]) if "use_atr_stop" in row else False,
             "atr_multiplier": float(row["atr_multiplier"]) if "atr_multiplier" in row else 2.0,
             "auto_run_trigger": True,
