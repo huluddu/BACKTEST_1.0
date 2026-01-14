@@ -181,8 +181,10 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
             ma_sell = st.number_input("매도 이평", key="ma_sell", step=1, min_value=1)
             offset_ma_sell = st.number_input("매도 이평 Offset", key="offset_ma_sell", step=1)
             offset_cl_sell = st.number_input("매도 종가 Offset", key="offset_cl_sell", step=1)
-            sell_operator = st.selectbox("매도 부호", ["<", ">"], key="sell_operator")
+            sell_operator = st.selectbox("매도 부호", ["<", ">", "OFF"], key="sell_operator")
             use_trend_in_sell = st.checkbox("매도 역추세 필터", key="use_trend_in_sell")
+
+
         
         st.divider()
         c3, c4 = st.columns(2)
@@ -450,7 +452,7 @@ with tab4:
         
         st.divider()
         cand_off_cl_sell = st.text_input("매도 종가 Offset", "1, 5, 10, 20, 50")
-        cand_sell_op = st.text_input("매도 부호", "<,>")
+        cand_sell_op = st.text_input("매도 부호", "<,>,OFF")
         cand_off_ma_sell = st.text_input("매도 이평 Offset", "1, 5, 10, 20, 50")
         cand_ma_sell = st.text_input("매도 이평 (MA Sell)", "1, 5, 10, 20, 50, 60, 120")
 
@@ -524,4 +526,5 @@ with tab4:
             with c2:
                 if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)):
                     st.rerun()
+
 
