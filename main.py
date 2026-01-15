@@ -249,7 +249,7 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
 # ==========================================
 # 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
 # ==========================================
-tab0, tab1, tab2, tab3, tab4 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실"])
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 계산기"])
 
 with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
@@ -526,5 +526,103 @@ with tab4:
             with c2:
                 if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)):
                     st.rerun()
+
+
+with tab5:
+    st.markdown("### 🧮 매매 계획 계산기 (손절 & 익절)")
+    st.caption("진입 정보를 입력하면, ATR(변동성)과 고정 비율(%) 기준의 목표가를 비교해줍니다.")
+
+    # 1. 기본 정보 입력
+    c1, c2, c3 = st.columns(3)
+    calc_ticker = c1.text_input("종목 티커", value="SOXL", key="calc_ticker")
+    calc_date = c2.date_input("매수(진입) 날짜", value=datetime.date.today(), key="calc_date")
+    calc_price = c3.number_input("매수 가격 ($)", value=0.0, step=0.1, format="%.2f", key="calc_price")
+    
+    st.divider()
+    
+    # 2. 설정 입력 (ATR vs 고정%)
+    col_input_l, col_input_r = st.columns(2)
+    
+    with col_input_l:
+        st.info("🌊 ATR (변동성) 기준 설정")
+        c_l1, c_l2 = st.columns(2)
+        calc_atr_sl = c_l1.number_input("손절 배수 (SL)", value=2.0, step=0.5, help="보통 2~3배를 사용합니다.")
+        calc_atr_tp = c_l2.number_input("익절 배수 (TP)", value=4.0, step=0.5, help="손절 배수의 2배 정도가 이상적입니다.")
+    
+    with col_input_r:
+        st.success("🛑 고정 비율 (%) 기준 설정")
+        c_r1, c_r2 = st.columns(2)
+        calc_pct_sl = c_r1.number_input("손절 비율 (%)", value=5.0, step=1.0)
+        calc_pct_tp = c_r2.number_input("익절 비율 (%)", value=10.0, step=1.0)
+    
+    # 3. 계산 버튼 및 로직
+    if st.button("🧮 손익 계산하기", type="primary", use_container_width=True):
+        if not calc_ticker or calc_price <= 0:
+            st.error("티커와 매수 가격을 정확히 입력해주세요.")
+        else:
+            # 데이터 로드 (넉넉하게)
+            start_search = calc_date - datetime.timedelta(days=60)
+            end_search = calc_date + datetime.timedelta(days=1)
+            
+            with st.spinner("데이터 분석 중..."):
+                df_calc = get_data(calc_ticker, start_search, end_search)
+            
+            if df_calc is not None and not df_calc.empty:
+                # ATR 계산
+                high_low = df_calc['High'] - df_calc['Low']
+                high_close = (df_calc['High'] - df_calc['Close'].shift()).abs()
+                low_close = (df_calc['Low'] - df_calc['Close'].shift()).abs()
+                ranges = pd.concat([high_low, high_close, low_close], axis=1)
+                df_calc['ATR'] = ranges.max(axis=1).rolling(window=14).mean()
+                
+                # 날짜 매칭
+                target_date_str = calc_date.strftime("%Y-%m-%d")
+                row = df_calc.loc[df_calc['Date'] == target_date_str]
+                
+                if row.empty:
+                    row = df_calc.iloc[[-1]]
+                    st.toast(f"⚠️ {target_date_str} 데이터가 없어 최근일({row['Date'].values[0]}) 기준으로 계산합니다.")
+
+                atr_val = row['ATR'].values[0]
+                
+                if pd.isna(atr_val):
+                    st.error("데이터 부족으로 ATR을 계산할 수 없습니다.")
+                else:
+                    # --- A. ATR 기준 계산 ---
+                    atr_sl_price = calc_price - (atr_val * calc_atr_sl)
+                    atr_tp_price = calc_price + (atr_val * calc_atr_tp)
+                    
+                    # 실제 변동폭 % 환산
+                    atr_sl_pct = ((calc_price - atr_sl_price) / calc_price) * 100
+                    atr_tp_pct = ((atr_tp_price - calc_price) / calc_price) * 100
+                    
+                    # --- B. 고정 % 기준 계산 ---
+                    pct_sl_price = calc_price * (1 - calc_pct_sl / 100)
+                    pct_tp_price = calc_price * (1 + calc_pct_tp / 100)
+                    
+                    # --- 결과 출력 ---
+                    st.markdown(f"#### 📊 분석 결과 (진입가: **${calc_price:.2f}**)")
+                    st.caption(f"📅 기준일 변동성(ATR): **${atr_val:.2f}**")
+
+                    res_col1, res_col2 = st.columns(2)
+                    
+                    # [왼쪽] ATR 결과
+                    with res_col1:
+                        st.info(f"🌊 **ATR 기준 (SL x{calc_atr_sl} / TP x{calc_atr_tp})**")
+                        st.metric("🚀 익절 목표가", f"${atr_tp_price:.2f}", f"+{atr_tp_pct:.2f}%")
+                        st.metric("📉 손절 방어선", f"${atr_sl_price:.2f}", f"-{atr_sl_pct:.2f}%", delta_color="inverse")
+                        
+                        if atr_sl_pct > calc_pct_sl:
+                            st.warning(f"⚠️ 변동성이 큽니다! (ATR 손절폭 -{atr_sl_pct:.1f}% > 고정 -{calc_pct_sl}%)")
+
+                    # [오른쪽] 고정 % 결과
+                    with res_col2:
+                        st.success(f"🛑 **고정 비율 (SL -{calc_pct_sl}% / TP +{calc_pct_tp}%)**")
+                        st.metric("🚀 익절 목표가", f"${pct_tp_price:.2f}", f"+{calc_pct_tp:.2f}%")
+                        st.metric("📉 손절 방어선", f"${pct_sl_price:.2f}", f"-{calc_pct_sl:.2f}%", delta_color="inverse")
+                        
+            else:
+                st.error("데이터를 불러올 수 없습니다.")
+
 
 
