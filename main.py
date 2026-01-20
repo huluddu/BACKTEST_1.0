@@ -475,8 +475,8 @@ with tab4:
         cand_use_atr = st.text_input("ATR 사용 여부", "False, True")
         cand_atr_mult = st.text_input("ATR 배수 후보", "2, 3, 4")
 
-    n_trials = st.number_input("시도 횟수", 10, 500, 50)
-    split_ratio = st.slider("Train 비율", 0.5, 0.9, 0.7)
+    n_trials = st.number_input("시도 횟수", 10, 1000, 100)
+    split_ratio = st.slider("Train 비율", 0.0, 1.0, 0.5)
     
     if st.button("🚀 최적 조합 찾기 시작"):
         choices = {
@@ -623,6 +623,7 @@ with tab5:
                         
             else:
                 st.error("데이터를 불러올 수 없습니다.")
+
 
 
 
