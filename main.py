@@ -286,17 +286,129 @@ with tab1:
         else: st.error("데이터 로딩 실패")
 
 with tab2:
-    if st.button("📚 모든 프리셋 일괄 점검"):
+    st.markdown("### 📚 전략 일괄 진단 대시보드")
+    
+    # [추가됨] 백테스트 실행 여부 체크박스
+    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (시간이 조금 더 걸립니다)", value=True)
+    
+    if st.button("🚀 모든 프리셋 분석 시작", type="primary"):
         rows = []
-        with st.spinner("모든 전략을 시뮬레이션 중입니다..."):
-            for name, p in PRESETS.items():
-                t = p.get("signal_ticker", p.get("trade_ticker"))
-                res = summarize_signal_today(get_data(t, start_date, end_date), p)
+        progress_text = "전략 분석 중..."
+        my_bar = st.progress(0, text=progress_text)
+        
+        total_presets = len(PRESETS)
+        
+        for i, (name, p) in enumerate(PRESETS.items()):
+            # 진행률 표시
+            my_bar.progress(int((i / total_presets) * 100), text=f"분석 중: {name}")
+            
+            # 1. 기본 정보 추출
+            s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
+            # 백테스트를 안 할거면 trade/market 티커는 굳이 필요 없지만, 데이터 로드를 위해 유지
+            t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
+            m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
+            
+            # 2. 데이터 준비
+            ma_pool = [
+                int(p.get("ma_buy", 50)), 
+                int(p.get("ma_sell", 10)),
+                int(p.get("ma_compare_short", 0) or 0),
+                int(p.get("ma_compare_long", 0) or 0)
+            ]
+            
+            base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
+                s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
+                int(p.get("market_ma_period", 200))
+            )
+            
+            if base is not None and not base.empty:
+                # A. 시그널 상태 확인 (이건 항상 실행)
+                sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
+                
+                row_data = {
+                    "전략명": name,
+                    "티커": s_ticker,
+                    "현재상태": sig_res["label"],
+                    "최근매수": sig_res["last_buy"]
+                }
+
+                # B. 백테스트 실행 (체크박스가 켜져 있을 때만!)
+                if run_full_backtest:
+                    bt_res = backtest_fast(
+                        base, x_sig, x_trd, ma_dict,
+                        int(p.get("ma_buy", 50)), int(p.get("offset_ma_buy", 0)),
+                        int(p.get("ma_sell", 10)), int(p.get("offset_ma_sell", 0)),
+                        int(p.get("offset_cl_buy", 0)), int(p.get("offset_cl_sell", 0)),
+                        int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0),
+                        int(p.get("offset_compare_short", 0)), int(p.get("offset_compare_long", 0)),
+                        5000000, 
+                        float(p.get("stop_loss_pct", 0.0)), float(p.get("take_profit_pct", 0.0)),
+                        str(p.get("strategy_behavior", "1. 포지션 없으면 매수 / 보유 중이면 매도")),
+                        int(p.get("min_hold_days", 0)),
+                        float(p.get("fee_bps", 25)), float(p.get("slip_bps", 1)),
+                        bool(p.get("use_trend_in_buy", True)), bool(p.get("use_trend_in_sell", False)),
+                        str(p.get("buy_operator", ">")), str(p.get("sell_operator", "<")),
+                        use_rsi_filter=bool(p.get("use_rsi_filter", False)),
+                        rsi_period=int(p.get("rsi_period", 14)), rsi_min=30, rsi_max=int(p.get("rsi_max", 70)),
+                        use_market_filter=bool(p.get("use_market_filter", False)),
+                        x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
+                        use_bollinger=bool(p.get("use_bollinger", False)),
+                        bb_period=int(p.get("bb_period", 20)), bb_std=float(p.get("bb_std", 2.0)),
+                        bb_entry_type=str(p.get("bb_entry_type", "")), bb_exit_type=str(p.get("bb_exit_type", "")),
+                        use_atr_stop=bool(p.get("use_atr_stop", False)),
+                        atr_multiplier=float(p.get("atr_multiplier", 2.0))
+                    )
+                    # 결과 추가
+                    row_data.update({
+                        "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
+                        "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
+                        "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
+                        "Profit Factor": bt_res.get('Profit Factor', 0),
+                        "매매횟수": bt_res.get('총 매매 횟수', 0)
+                    })
+                else:
+                    # 백테스트 안 할 때는 빈칸(-) 처리
+                    row_data.update({
+                        "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"
+                    })
+                
+                rows.append(row_data)
+            else:
                 rows.append({
-                    "전략": name, "티커": t, "시그널": res["label"], 
-                    "최근 BUY": res["last_buy"], "최근 SELL": res["last_sell"], "최근 HOLD": res["last_hold"]
+                    "전략명": name, "티커": s_ticker, "현재상태": "데이터오류",
+                    "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"
                 })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+        my_bar.empty()
+        
+        if rows:
+            df_result = pd.DataFrame(rows)
+            
+            # 정렬 로직 (백테스트 결과가 있을 때만 수익률 순 정렬)
+            if run_full_backtest:
+                try:
+                    df_result["sort_key"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
+                    df_result = df_result.sort_values("sort_key", ascending=False).drop(columns=["sort_key"])
+                except: pass
+            
+            st.success("✅ 분석 완료!")
+            
+            # 컬럼 설정 (백테스트 안 할 때는 불필요한 컬럼 숨기거나 단순화 가능하지만 여기선 다 보여줌)
+            cols_config = {
+                "전략명": st.column_config.TextColumn("전략 이름"),
+                "현재상태": st.column_config.TextColumn("시그널"),
+                "최근매수": st.column_config.TextColumn("최근 매수일")
+            }
+            
+            if run_full_backtest:
+                cols_config.update({
+                    "총 수익률(%)": st.column_config.TextColumn("수익률"),
+                    "MDD(%)": st.column_config.TextColumn("MDD"),
+                })
+
+            st.dataframe(df_result, use_container_width=True, column_config=cols_config, hide_index=True)
+        else:
+            st.warning("분석할 프리셋이 없습니다.")
 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
@@ -623,6 +735,7 @@ with tab5:
                         
             else:
                 st.error("데이터를 불러올 수 없습니다.")
+
 
 
 
