@@ -240,16 +240,18 @@ def summarize_signal_today(df, p):
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except: return {"label": "오류", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
-# --- 백테스트 함수 (수정됨) ---
+# --- 백테스트 함수 (상세 로그 버전) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
                   use_rsi_filter=False, rsi_period=14, rsi_min=30, rsi_max=70,
                   use_market_filter=False, x_mkt=None, ma_mkt_arr=None,
                   use_bollinger=False, bb_period=20, bb_std=2.0, 
                   bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈",
                   use_atr_stop=False, atr_multiplier=2.0):
+    
     n = len(base)
     if n == 0: return {}
     
+    # 데이터 준비
     ma_buy_arr, ma_sell_arr = ma_dict_sig.get(int(ma_buy)), ma_dict_sig.get(int(ma_sell))
     ma_s_arr = ma_dict_sig.get(int(ma_compare_short)) if ma_compare_short else None
     ma_l_arr = ma_dict_sig.get(int(ma_compare_long)) if ma_compare_long else None
@@ -268,86 +270,182 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
 
     for i in range(idx0, n):
         just_bought = False
-        exec_price, signal, reason = None, "HOLD", None
+        exec_price, signal, reason, reason_detail = None, "HOLD", None, ""
         close_today = xC_trd[i]
         open_today, low_today, high_today = base["Open_trd"].iloc[i], base["Low_trd"].iloc[i], base["High_trd"].iloc[i]
 
+        # 1. 지표 값 조회 (로깅용 변수 미리 확보)
         try:
             cl_b, ma_b = x_sig[i - int(offset_cl_buy)], ma_buy_arr[i - int(offset_ma_buy)]
             cl_s, ma_s = x_sig[i - int(offset_cl_sell)], ma_sell_arr[i - int(offset_ma_sell)]
-        except: asset_curve.append(cash + position * close_today); continue
+        except: 
+            asset_curve.append(cash + position * close_today)
+            continue
 
+        # 2. 매수/매도 조건 판단
         buy_cond, sell_cond = False, False
+        buy_msg, sell_msg = "", "" # 상세 로그용 메시지
 
         if use_bollinger:
             idx_b, idx_s = i - int(offset_cl_buy), i - int(offset_cl_sell)
-            if "상단선" in str(bb_entry_type): buy_cond = cl_b > bb_up[idx_b]
-            elif "하단선" in str(bb_entry_type): buy_cond = cl_b < bb_lo[idx_b]
-            else: buy_cond = cl_b > bb_mid[idx_b]
+            
+            # 볼린저 매수
+            if "상단선" in str(bb_entry_type): 
+                buy_cond = cl_b > bb_up[idx_b]
+                buy_msg = f"종가({cl_b:.2f}) > 상단({bb_up[idx_b]:.2f})"
+            elif "하단선" in str(bb_entry_type): 
+                buy_cond = cl_b < bb_lo[idx_b]
+                buy_msg = f"종가({cl_b:.2f}) < 하단({bb_lo[idx_b]:.2f})"
+            else: 
+                buy_cond = cl_b > bb_mid[idx_b]
+                buy_msg = f"종가({cl_b:.2f}) > 중심({bb_mid[idx_b]:.2f})"
 
-            if "상단선" in str(bb_exit_type): sell_cond = cl_s < bb_up[idx_s]
-            elif "하단선" in str(bb_exit_type): sell_cond = cl_s < bb_lo[idx_s]
-            else: sell_cond = cl_s < bb_mid[idx_s]
+            # 볼린저 매도
+            if "상단선" in str(bb_exit_type): 
+                sell_cond = cl_s < bb_up[idx_s]
+                sell_msg = f"종가({cl_s:.2f}) < 상단({bb_up[idx_s]:.2f})"
+            elif "하단선" in str(bb_exit_type): 
+                sell_cond = cl_s < bb_lo[idx_s]
+                sell_msg = f"종가({cl_s:.2f}) < 하단({bb_lo[idx_s]:.2f})"
+            else: 
+                sell_cond = cl_s < bb_mid[idx_s]
+                sell_msg = f"종가({cl_s:.2f}) < 중심({bb_mid[idx_s]:.2f})"
         else:
+            # 이평선 추세 필터
             t_ok = True
-            if ma_s_arr is not None: t_ok = ma_s_arr[i-int(offset_compare_short)] >= ma_l_arr[i-int(offset_compare_long)]
-            buy_cond = ((cl_b > ma_b) if buy_operator == ">" else (cl_b < ma_b)) and (t_ok if use_trend_in_buy else True)
-            sell_cond = ((cl_s < ma_s) if sell_operator == "<" else (cl_s > ma_s)) and ((not t_ok) if use_trend_in_sell else True)
+            t_msg = ""
+            if ma_s_arr is not None: 
+                s_val = ma_s_arr[i-int(offset_compare_short)]
+                l_val = ma_l_arr[i-int(offset_compare_long)]
+                t_ok = s_val >= l_val
+                t_msg = f" [추세:{'상승' if t_ok else '하락'}({s_val:.1f}/{l_val:.1f})]"
 
-        if buy_cond and use_rsi_filter and rsi_arr[i-1] > rsi_max: buy_cond = False
-        if buy_cond and use_market_filter and x_mkt[i] < ma_mkt_arr[i]: buy_cond = False
+            # 이평선 매수
+            if buy_operator == ">":
+                buy_cond = (cl_b > ma_b)
+                buy_msg = f"종가({cl_b:.2f}) > 이평({ma_b:.2f})"
+            else:
+                buy_cond = (cl_b < ma_b)
+                buy_msg = f"종가({cl_b:.2f}) < 이평({ma_b:.2f})"
+            
+            if use_trend_in_buy and not t_ok: 
+                buy_cond = False
+                buy_msg += " (추세필터로 거부됨)"
 
-        # [핵심 수정] 매도 OFF 강제 적용 (볼린저 밴드든 뭐든 덮어씀)
+            # 이평선 매도
+            if sell_operator == "OFF":
+                sell_cond = False
+                sell_msg = "매도조건 OFF"
+            else:
+                if sell_operator == "<":
+                    sell_cond = (cl_s < ma_s)
+                    sell_msg = f"종가({cl_s:.2f}) < 이평({ma_s:.2f})"
+                else:
+                    sell_cond = (cl_s > ma_s)
+                    sell_msg = f"종가({cl_s:.2f}) > 이평({ma_s:.2f})"
+                
+                if use_trend_in_sell and t_ok: # 역추세 매도인데 추세가 좋으면 매도 안함
+                    sell_cond = False
+                    sell_msg += " (역추세필터로 거부됨)"
+
+        # 3. 보조 필터 (RSI, Market)
+        if buy_cond and use_rsi_filter:
+            if rsi_arr[i-1] > rsi_max: 
+                buy_cond = False
+                buy_msg += f" (RSI 과열 {rsi_arr[i-1]:.1f})"
+        
+        if buy_cond and use_market_filter:
+            if x_mkt[i] < ma_mkt_arr[i]: 
+                buy_cond = False
+                buy_msg += f" (시장하락장 {x_mkt[i]:.1f} < {ma_mkt_arr[i]:.1f})"
+
+        # [매도 OFF 강제 적용]
         if sell_operator == "OFF":
             sell_cond = False
+            sell_msg = "OFF"
 
+        # ---------------------------
+        # 4. 포지션 관리 로직 (진입/청산)
+        # ---------------------------
         stop_hit, take_hit = False, False
         sold_today = False 
 
         if position > 0:
+            # 손절가 계산
             current_stop_price = 0.0
+            atr_info_str = ""
+            
             if use_atr_stop and atr_arr[i-hold_days] > 0: 
                  entry_idx = i - hold_days
                  if entry_idx >= 0:
-                     current_stop_price = entry_price - (atr_arr[entry_idx] * float(atr_multiplier))
+                     entry_atr = atr_arr[entry_idx]
+                     current_stop_price = entry_price - (entry_atr * float(atr_multiplier))
+                     atr_info_str = f"(ATR:{entry_atr:.2f}x{atr_multiplier})"
             elif stop_loss_pct > 0:
                 current_stop_price = entry_price * (1 - stop_loss_pct / 100)
+                atr_info_str = f"(-{stop_loss_pct}%)"
             
+            # 손절 체크
             if current_stop_price > 0 and low_today <= current_stop_price:
                 stop_hit = True
                 exec_price = open_today if open_today < current_stop_price else current_stop_price
+                reason_detail = f"장중저가({low_today:.2f}) <= 손절가({current_stop_price:.2f}) {atr_info_str}"
             
+            # 익절 체크
             if take_profit_pct > 0 and not stop_hit:
                 tp_price = entry_price * (1 + take_profit_pct / 100)
                 if high_today >= tp_price: 
                     take_hit = True
                     exec_price = open_today if open_today > tp_price else tp_price
+                    reason_detail = f"장중고가({high_today:.2f}) >= 익절가({tp_price:.2f})"
 
+            # 강제 청산 실행 (손/익절)
             if stop_hit or take_hit:
                 if not stop_hit and not take_hit: exec_price = close_today 
                 cash = position * _fill(exec_price, 'sell')
-                position, signal, reason, entry_price = 0.0, "SELL", "손절(ATR)" if (stop_hit and use_atr_stop) else ("손절" if stop_hit else "익절"), 0.0
+                
+                r_type = "손절" if stop_hit else "익절"
+                if stop_hit and use_atr_stop: r_type = "ATR손절"
+                
+                position, signal, reason, entry_price = 0.0, "SELL", r_type, 0.0
                 sold_today = True
 
+        # 전략 매도 실행 (보유 중이고, 손/익절 안 당했고, 조건 만족 시)
         if position > 0 and signal == "HOLD":
             if sell_cond and hold_days >= int(min_hold_days):
                 exec_price = close_today
                 cash = position * _fill(exec_price, 'sell')
                 position, signal, reason, entry_price = 0.0, "SELL", "전략매도", 0.0
+                reason_detail = sell_msg # 위에서 만든 상세 메시지 입력
                 sold_today = True
 
+        # 전략 매수 실행 (포지션 없고, 오늘 안 팔았고, 조건 만족 시)
         elif position == 0 and not sold_today:
             if buy_cond:
                 exec_price = close_today
                 position = cash / _fill(exec_price, 'buy')
                 cash, signal, reason, just_bought, entry_price = 0.0, "BUY", "전략매수", True, exec_price
+                reason_detail = buy_msg # 위에서 만든 상세 메시지 입력
 
         hold_days = hold_days + 1 if position > 0 and not just_bought else 0
         total = cash + (position * close_today)
         asset_curve.append(total)
         
-        logs.append({"날짜": base["Date"].iloc[i], "종가": close_today, "신호": signal, "체결가": exec_price, "자산": total, "이유": reason, "손절발동": stop_hit, "익절발동": take_hit})
+        # 로그 저장 (상세 내용 포함)
+        if signal != "HOLD":
+            logs.append({
+                "날짜": base["Date"].iloc[i], 
+                "종가": close_today, 
+                "신호": signal, 
+                "체결가": exec_price, 
+                "자산": total, 
+                "이유": reason, 
+                "상세내용": reason_detail, # [NEW] 상세 근거 추가
+                "손절발동": stop_hit, 
+                "익절발동": take_hit
+            })
 
+    # 결과 집계
     if not logs: return {}
     s = pd.Series(asset_curve)
     
@@ -374,7 +472,7 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         "매매 로그": logs,
         "차트데이터": {"ma_buy_arr": ma_buy_arr[idx0:], "ma_sell_arr": ma_sell_arr[idx0:], "base": base.iloc[idx0:].reset_index(drop=True), "bb_up": bb_up[idx0:] if use_bollinger else None, "bb_lo": bb_lo[idx0:] if use_bollinger else None}
     }
-
+                      
 def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, split_ratio, choices_dict, n_trials=50, initial_cash=5000000, fee_bps=0, slip_bps=0, strategy_behavior="1", min_hold_days=0, constraints=None, **kwargs):
     ma_pool = set([5, 10, 20, 60, 120])
     for k in ["ma_buy", "ma_sell", "ma_compare_short", "ma_compare_long"]:
@@ -471,3 +569,4 @@ def apply_opt_params(row):
         for k, v in updates.items(): st.session_state[k] = v
         st.toast("✅ 설정이 적용되었습니다! 백테스트 탭을 확인하세요.")
     except Exception as e: st.error(f"설정 적용 오류: {e}")
+
