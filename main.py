@@ -285,8 +285,8 @@ with tab1:
 with tab2:
     st.markdown("### 📚 전략 일괄 진단 대시보드")
     
-    # [추가됨] 백테스트 실행 여부 체크박스
-    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (시간이 조금 더 걸립니다)", value=True)
+    # 백테스트 실행 여부 체크박스
+    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (체크 시 속도가 느려집니다)", value=True)
     
     if st.button("🚀 모든 프리셋 분석 시작", type="primary"):
         rows = []
@@ -301,7 +301,6 @@ with tab2:
             
             # 1. 기본 정보 추출
             s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
-            # 백테스트를 안 할거면 trade/market 티커는 굳이 필요 없지만, 데이터 로드를 위해 유지
             t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
             m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
             
@@ -313,19 +312,22 @@ with tab2:
                 int(p.get("ma_compare_long", 0) or 0)
             ]
             
+            # 데이터 로드
             base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
                 s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
                 int(p.get("market_ma_period", 200))
             )
             
             if base is not None and not base.empty:
-                # A. 시그널 상태 확인 (이건 항상 실행)
+                # -----------------------------------------------------------
+                # A. 시그널 상태 확인 (여기서 '매수/매도 중복' 라벨을 가져옵니다)
+                # -----------------------------------------------------------
                 sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
                 
                 row_data = {
                     "전략명": name,
                     "티커": s_ticker,
-                    "현재상태": sig_res["label"],
+                    "현재상태": sig_res["label"], # <-- strategy.py에서 만든 라벨이 여기에 들어갑니다
                     "최근매수": sig_res["last_buy"]
                 }
 
@@ -390,10 +392,10 @@ with tab2:
             
             st.success("✅ 분석 완료!")
             
-            # 컬럼 설정 (백테스트 안 할 때는 불필요한 컬럼 숨기거나 단순화 가능하지만 여기선 다 보여줌)
+            # 컬럼 설정
             cols_config = {
                 "전략명": st.column_config.TextColumn("전략 이름"),
-                "현재상태": st.column_config.TextColumn("시그널"),
+                "현재상태": st.column_config.TextColumn("시그널", help="⚠️ 표시가 뜨면 매수/매도 조건이 겹친 것입니다."),
                 "최근매수": st.column_config.TextColumn("최근 매수일")
             }
             
@@ -732,6 +734,7 @@ with tab5:
                         
             else:
                 st.error("데이터를 불러올 수 없습니다.")
+
 
 
 
