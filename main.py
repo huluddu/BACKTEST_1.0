@@ -738,7 +738,7 @@ with tab5:
 # --- 탭 6: 펀더멘털 (주가 vs EPS) ---
 with tab6:
     st.markdown("### 📊 펀더멘털 & 어닝 서프라이즈 분석")
-    st.caption("주가(Price)와 시장의 **예상치(Estimate)** vs **실제 발표치(Actual)**를 비교합니다.")
+    st.caption("미국 주식은 **Yahoo**, 한국 주식은 **Naver 금융/FnGuide**를 분석합니다.")
 
     col_f1, col_f2 = st.columns([1, 3])
     
@@ -748,13 +748,11 @@ with tab6:
         f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
         
         st.info("""
-        **차트 보는 법 (미국장):**
-        - **⚫ 검은선:** 주가 (Price)
-        - **🔵 파란점:** 예상 EPS (Consensus)
-        - **🟢 초록마름모:** 실제 EPS (Actual)
+        **🇰🇷 한국 주식:**
+        - 네이버 금융에서 **연간/분기 실적** 및 **컨센서스(E)**를 가져옵니다.
         
-        👉 **초록색이 파란색보다 위에 있다?**
-        = **'어닝 서프라이즈'** (돈을 예상보다 잘 범)
+        **🇺🇸 미국 주식:**
+        - 야후 파이낸스에서 **EPS 추세**와 **어닝 서프라이즈**를 비교합니다.
         """)
 
     with col_f2:
@@ -764,45 +762,93 @@ with tab6:
             import requests
             import datetime
 
-            # --- 🇰🇷 한국 주식 로직 (FnGuide) ---
+            # -----------------------------------------------------------
+            # 🇰🇷 한국 주식 로직 (네이버 금융 크롤링 - 가장 안정적)
+            # -----------------------------------------------------------
             if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
-                st.subheader(f"🇰🇷 {f_ticker} 실적 컨센서스 (FnGuide)")
+                st.subheader(f"🇰🇷 {f_ticker} 기업 실적 분석 (Naver 금융)")
                 code = f_ticker.split('.')[0]
-                url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Consensus.asp?pGB=1&gicode=A{code}"
+                
+                # 네이버 금융 '종목분석' 페이지 URL
+                url = f"https://finance.naver.com/item/main.naver?code={code}"
                 
                 try:
-                    dfs = pd.read_html(url, header=0)
-                    if len(dfs) > 0:
-                        df_con = dfs[0]
-                        target_rows = ["매출액", "영업이익", "당기순이익", "EPS(원)"]
-                        df_con.set_index(df_con.columns[0], inplace=True)
-                        filtered_df = df_con.loc[df_con.index.str.contains("|".join(target_rows), na=False)]
-                        
-                        if filtered_df.empty:
-                             st.warning("컨센서스 데이터가 비어있습니다.")
-                             st.dataframe(df_con)
-                        else:
-                            st.write("#### 📅 연간 실적 추정치")
-                            st.dataframe(filtered_df, use_container_width=True)
-                            
-                            try:
-                                op_profit = df_con.loc[df_con.index.str.contains("영업이익", na=False)].iloc[0]
-                                valid_cols = [c for c in op_profit.index if "/" in str(c)]
-                                op_data = op_profit[valid_cols]
-                                op_data = op_data.astype(str).str.replace(',', '').astype(float)
-                                
-                                fig, ax = plt.subplots(figsize=(8, 4))
-                                ax.plot(op_data.index, op_data.values, marker='o', linestyle='-', color='red')
-                                ax.set_title("Operating Profit Trend (Est.)")
-                                ax.grid(True, alpha=0.3)
-                                st.pyplot(fig)
-                            except: pass
-                    else:
-                        st.error("데이터를 찾을 수 없습니다.")
-                except Exception as e:
-                    st.error(f"오류: {e}")
+                    # 1. 헤더 추가 (브라우저인 척 속이기)
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
+                    response = requests.get(url, headers=headers)
+                    response.raise_for_status() # 접속 에러 체크
 
-            # --- 🇺🇸 미국 주식 로직 (Yahoo) ---
+                    # 2. HTML 파싱 (인코딩 설정 필수)
+                    # 네이버 금융은 euc-kr을 자주 씁니다.
+                    dfs = pd.read_html(response.text, encoding='euc-kr')
+                    
+                    # 3. '최근 연간 실적' 표 찾기
+                    # 보통 3번째 표가 재무제표입니다. (페이지 구조에 따라 다를 수 있어 순회하며 찾음)
+                    df_fin = None
+                    for df in dfs:
+                        # '매출액'이나 '영업이익'이라는 단어가 1열에 포함된 표를 찾음
+                        if df.shape[1] > 3 and df.iloc[:, 0].astype(str).str.contains("매출액|영업이익").any():
+                            df_fin = df
+                            break
+                    
+                    if df_fin is not None:
+                        # 표 정리 (MultiIndex 컬럼 정리)
+                        # 네이버 표는 헤더가 2줄입니다 (최근 연간 실적 | 최근 분기 실적). 이를 깔끔하게 만듭니다.
+                        df_fin.columns = [c[1] for c in df_fin.columns] # 두 번째 줄(날짜)만 사용
+                        df_fin.set_index(df_fin.columns[0], inplace=True) # 첫 열(항목명)을 인덱스로
+                        
+                        # 주요 항목만 추출
+                        target_rows = ["매출액", "영업이익", "당기순이익", "ROE", "PER", "PBR"]
+                        # 인덱스 이름에 해당 단어가 포함된 행만 필터링
+                        filtered_df = df_fin.loc[df_fin.index.str.contains("|".join(target_rows), na=False)]
+                        
+                        st.write("#### 📅 주요 재무제표 (최근 연간/분기)")
+                        st.dataframe(filtered_df, use_container_width=True)
+                        st.caption("※ (E) 표시는 컨센서스(예상치) 입니다.")
+
+                        # --- 차트 그리기 (영업이익) ---
+                        try:
+                            # '영업이익' 행 가져오기
+                            op_row = df_fin.loc[df_fin.index.str.contains("영업이익", na=False)].iloc[0]
+                            # 데이터 정제 (숫자가 아닌 것 제외)
+                            op_data = op_row.dropna()
+                            # (E) 같은 문자 제거하고 숫자로 변환
+                            op_vals = []
+                            op_cols = []
+                            
+                            for col, val in op_data.items():
+                                try:
+                                    # 1,234 같은 쉼표 제거 / (E) 같은 문자 제거 후 float 변환
+                                    clean_val = float(str(val).replace(',', '').replace('(E)', '').strip())
+                                    op_vals.append(clean_val)
+                                    op_cols.append(col)
+                                except: pass
+                            
+                            if len(op_vals) > 0:
+                                fig, ax = plt.subplots(figsize=(8, 4))
+                                ax.plot(op_cols, op_vals, marker='o', linestyle='-', color='red')
+                                ax.set_title("Operating Profit Trend (Naver)")
+                                ax.grid(True, alpha=0.3)
+                                
+                                # 숫자 표시
+                                for i, v in enumerate(op_vals):
+                                    ax.text(i, v, f"{v:,.0f}", ha='center', va='bottom')
+                                
+                                st.pyplot(fig)
+                        except Exception as chart_err:
+                            st.caption(f"차트 생성 불가: {chart_err}")
+
+                    else:
+                        st.warning("재무제표 표를 찾지 못했습니다. (네이버 금융 구조 변경 가능성)")
+                        st.markdown(f"[네이버 금융에서 직접 보기]({url})")
+
+                except Exception as e:
+                    st.error(f"데이터 가져오기 실패: {e}")
+                    st.markdown(f"👉 [네이버 금융 바로가기]({url})")
+
+            # -----------------------------------------------------------
+            # 🇺🇸 미국 주식 로직 (Yahoo - 기존 유지)
+            # -----------------------------------------------------------
             else:
                 st.subheader(f"🇺🇸 {f_ticker} Earnings Surprise (Est vs Actual)")
                 with st.spinner("미국 주식 데이터 분석 중..."):
@@ -816,71 +862,39 @@ with tab6:
                         
                         if df_eps is not None and not df_eps.empty:
                             df_eps = df_eps.sort_index()
-                            
-                            # 타임존 제거
-                            if df_eps.index.tz is not None:
-                                df_eps.index = df_eps.index.tz_localize(None)
-                            
-                            # 기간 필터링
+                            if df_eps.index.tz is not None: df_eps.index = df_eps.index.tz_localize(None)
                             df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
                             
                             if df_eps.empty:
                                 st.warning("조회 기간 내 EPS 데이터가 없습니다.")
                             else:
-                                # 그래프 그리기
                                 fig, ax1 = plt.subplots(figsize=(10, 5))
-                                
-                                # 1. 주가 (왼쪽 축)
                                 ax1.set_xlabel('Date')
                                 ax1.set_ylabel('Price ($)', color='black')
-                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.2, label='Price') # 주가는 연하게
+                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.2, label='Price')
                                 
-                                # 2. EPS (오른쪽 축)
                                 ax2 = ax1.twinx()
                                 ax2.set_ylabel('EPS ($)', color='blue')
-                                
-                                # A. 예상치 (Estimate) - 파란색 점선
                                 if 'EPS Estimate' in df_eps.columns:
-                                    ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='--', alpha=0.6, label='Estimate (Consensus)')
-                                
-                                # B. 실제치 (Reported) - 초록색 마름모 (실선)
+                                    ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='--', alpha=0.6, label='Estimate')
                                 if 'Reported EPS' in df_eps.columns:
-                                    # 실제값이 있는 데이터만 필터링해서 그림
                                     actual_data = df_eps.dropna(subset=['Reported EPS'])
-                                    ax2.plot(actual_data.index, actual_data['Reported EPS'], color='green', marker='D', linestyle='-', markersize=8, label='Actual (Reported)')
+                                    ax2.plot(actual_data.index, actual_data['Reported EPS'], color='green', marker='D', linestyle='-', markersize=8, label='Actual')
 
                                 ax2.tick_params(axis='y', labelcolor='green')
-                                
                                 plt.title(f"{f_ticker} Price vs Earnings Surprise")
                                 ax1.grid(True, alpha=0.3)
-                                
-                                # 범례
                                 lines1, labels1 = ax1.get_legend_handles_labels()
                                 lines2, labels2 = ax2.get_legend_handles_labels()
                                 ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-                                
                                 st.pyplot(fig)
                                 
-                                # 어닝 서프라이즈 분석
-                                if 'Reported EPS' in df_eps.columns and 'EPS Estimate' in df_eps.columns:
+                                if 'Reported EPS' in df_eps.columns:
                                     last_row = df_eps.dropna(subset=['Reported EPS']).iloc[-1]
-                                    est = last_row['EPS Estimate']
-                                    act = last_row['Reported EPS']
-                                    
-                                    # 서프라이즈 여부 확인 (NaN 체크)
+                                    est, act = last_row['EPS Estimate'], last_row['Reported EPS']
                                     if pd.notna(est) and pd.notna(act):
                                         surprise = act - est
-                                        surprise_rate = (surprise / abs(est) * 100) if est != 0 else 0
-                                        
-                                        st.markdown(f"""
-                                        #### 📢 최근 실적 발표 ({last_row.name.strftime('%Y-%m-%d')})
-                                        - **예상(Estimate):** ${est:.2f}
-                                        - **실제(Actual):** **${act:.2f}**
-                                        - **결과:** **{surprise_rate:+.1f}%** {'🎉 서프라이즈 (Beat)' if surprise > 0 else '⚡ 쇼크 (Miss)'}
-                                        """)
-                                    else:
-                                        st.info("최근 실적 데이터가 불완전합니다.")
-
+                                        st.markdown(f"#### 📢 최근 실적: 예상 ${est:.2f} vs 실제 ${act:.2f} ({'Beat' if surprise>0 else 'Miss'})")
                         else:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
