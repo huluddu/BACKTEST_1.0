@@ -736,10 +736,9 @@ with tab5:
                 st.error("데이터를 불러올 수 없습니다.")
 
 # --- 탭 6: 펀더멘털 (주가 vs EPS) ---
-# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
 with tab6:
-    st.markdown("### 📊 펀더멘털 & 컨센서스 분석")
-    st.caption("미국 주식은 **Yahoo Finance**, 한국 주식은 **FnGuide** 데이터를 사용합니다.")
+    st.markdown("### 📊 펀더멘털 & 어닝 서프라이즈 분석")
+    st.caption("주가(Price)와 시장의 **예상치(Estimate)** vs **실제 발표치(Actual)**를 비교합니다.")
 
     col_f1, col_f2 = st.columns([1, 3])
     
@@ -748,8 +747,15 @@ with tab6:
         f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
         f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
         
-        st.caption("예: 삼성전자(005930.KS), 에코프로(086520.KQ), NVDA")
-        st.info("미국 주식은 EPS 추세 차트를, 한국 주식은 실적 표를 보여줍니다.")
+        st.info("""
+        **차트 보는 법 (미국장):**
+        - **⚫ 검은선:** 주가 (Price)
+        - **🔵 파란점:** 예상 EPS (Consensus)
+        - **🟢 초록마름모:** 실제 EPS (Actual)
+        
+        👉 **초록색이 파란색보다 위에 있다?**
+        = **'어닝 서프라이즈'** (돈을 예상보다 잘 범)
+        """)
 
     with col_f2:
         if st.button("📉 데이터 가져오기", type="primary"):
@@ -798,7 +804,7 @@ with tab6:
 
             # --- 🇺🇸 미국 주식 로직 (Yahoo) ---
             else:
-                st.subheader(f"🇺🇸 {f_ticker} Forward EPS Trend")
+                st.subheader(f"🇺🇸 {f_ticker} Earnings Surprise (Est vs Actual)")
                 with st.spinner("미국 주식 데이터 분석 중..."):
                     try:
                         end_d = datetime.date.today()
@@ -811,37 +817,70 @@ with tab6:
                         if df_eps is not None and not df_eps.empty:
                             df_eps = df_eps.sort_index()
                             
-                            # [핵심 수정] 타임존 정보 제거 (tz_localize(None))
+                            # 타임존 제거
                             if df_eps.index.tz is not None:
                                 df_eps.index = df_eps.index.tz_localize(None)
                             
-                            df_eps = df_eps.dropna(subset=['EPS Estimate'])
-                            
-                            # 타임존을 제거했으므로 이제 비교 가능
+                            # 기간 필터링
                             df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
                             
                             if df_eps.empty:
                                 st.warning("조회 기간 내 EPS 데이터가 없습니다.")
                             else:
-                                df_eps['EPS_MA'] = df_eps['EPS Estimate'].rolling(window=4).mean()
-                                
+                                # 그래프 그리기
                                 fig, ax1 = plt.subplots(figsize=(10, 5))
+                                
+                                # 1. 주가 (왼쪽 축)
                                 ax1.set_xlabel('Date')
                                 ax1.set_ylabel('Price ($)', color='black')
-                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.3, label='Price')
+                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.2, label='Price') # 주가는 연하게
                                 
+                                # 2. EPS (오른쪽 축)
                                 ax2 = ax1.twinx()
-                                ax2.set_ylabel('EPS Est ($)', color='blue')
-                                ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', label='EPS Est')
-                                ax2.plot(df_eps.index, df_eps['EPS_MA'], color='orange', linestyle='--', label='EPS Trend')
+                                ax2.set_ylabel('EPS ($)', color='blue')
                                 
-                                plt.title(f"{f_ticker} Price vs EPS Consensus")
+                                # A. 예상치 (Estimate) - 파란색 점선
+                                if 'EPS Estimate' in df_eps.columns:
+                                    ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='--', alpha=0.6, label='Estimate (Consensus)')
+                                
+                                # B. 실제치 (Reported) - 초록색 마름모 (실선)
+                                if 'Reported EPS' in df_eps.columns:
+                                    # 실제값이 있는 데이터만 필터링해서 그림
+                                    actual_data = df_eps.dropna(subset=['Reported EPS'])
+                                    ax2.plot(actual_data.index, actual_data['Reported EPS'], color='green', marker='D', linestyle='-', markersize=8, label='Actual (Reported)')
+
+                                ax2.tick_params(axis='y', labelcolor='green')
+                                
+                                plt.title(f"{f_ticker} Price vs Earnings Surprise")
                                 ax1.grid(True, alpha=0.3)
+                                
+                                # 범례
                                 lines1, labels1 = ax1.get_legend_handles_labels()
                                 lines2, labels2 = ax2.get_legend_handles_labels()
                                 ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
                                 
                                 st.pyplot(fig)
+                                
+                                # 어닝 서프라이즈 분석
+                                if 'Reported EPS' in df_eps.columns and 'EPS Estimate' in df_eps.columns:
+                                    last_row = df_eps.dropna(subset=['Reported EPS']).iloc[-1]
+                                    est = last_row['EPS Estimate']
+                                    act = last_row['Reported EPS']
+                                    
+                                    # 서프라이즈 여부 확인 (NaN 체크)
+                                    if pd.notna(est) and pd.notna(act):
+                                        surprise = act - est
+                                        surprise_rate = (surprise / abs(est) * 100) if est != 0 else 0
+                                        
+                                        st.markdown(f"""
+                                        #### 📢 최근 실적 발표 ({last_row.name.strftime('%Y-%m-%d')})
+                                        - **예상(Estimate):** ${est:.2f}
+                                        - **실제(Actual):** **${act:.2f}**
+                                        - **결과:** **{surprise_rate:+.1f}%** {'🎉 서프라이즈 (Beat)' if surprise > 0 else '⚡ 쇼크 (Miss)'}
+                                        """)
+                                    else:
+                                        st.info("최근 실적 데이터가 불완전합니다.")
+
                         else:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
