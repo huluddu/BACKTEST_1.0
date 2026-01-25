@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import random
 import google.generativeai as genai
-import lxml
 
 # 모듈 불러오기
 from modules.utils import load_saved_strategies, save_strategy_to_file, delete_strategy_from_file, parse_choices
@@ -872,4 +871,5 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
