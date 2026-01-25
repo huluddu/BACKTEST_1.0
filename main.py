@@ -246,7 +246,7 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
 # ==========================================
 # 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
 # ==========================================
-tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 계산기"])
+tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털"])
 
 with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
@@ -735,9 +735,98 @@ with tab5:
             else:
                 st.error("데이터를 불러올 수 없습니다.")
 
+# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
+with tab6:
+    st.markdown("### 📊 주가 & 선행 EPS 추세 분석")
+    st.caption("주가(Price)와 시장의 이익 예상치(EPS Consensus)가 동행하는지 확인합니다.")
 
+    col_f1, col_f2 = st.columns([1, 3])
+    
+    with col_f1:
+        f_ticker = st.text_input("분석할 티커", value="NVDA", key="fund_ticker")
+        f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
+        
+        st.info("""
+        **보는 법:**
+        - **검은선(주가):** 시장 가격
+        - **파란선(EPS):** 이익 예상치
+        - **주황선(EPS MA):** 이익의 장기 추세
+        
+        👉 **파란선(이익)이 계속 오르는데 주가가 내려갔다면?** → 저평가 매수 기회일 수 있습니다.
+        """)
 
-
-
-
-
+    with col_f2:
+        if st.button("📉 펀더멘털 차트 그리기", type="primary"):
+            import matplotlib.pyplot as plt
+            import yfinance as yf
+            
+            with st.spinner(f"{f_ticker} 데이터 분석 중..."):
+                try:
+                    # 1. 주가 데이터 가져오기
+                    end_d = datetime.date.today()
+                    start_d = end_d - datetime.timedelta(days=365 * f_years)
+                    df_price = get_data(f_ticker, start_d, end_d)
+                    
+                    # 2. EPS 데이터 가져오기 (yfinance)
+                    tick = yf.Ticker(f_ticker)
+                    df_eps = tick.get_earnings_dates()
+                    
+                    if df_eps is not None and not df_eps.empty:
+                        # EPS 데이터 전처리
+                        df_eps = df_eps.sort_index()
+                        df_eps = df_eps.dropna(subset=['EPS Estimate'])
+                        # 조회 기간 내 데이터만 필터링
+                        df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
+                        
+                        # EPS 이동평균 (4분기 = 1년 추세)
+                        df_eps['EPS_MA'] = df_eps['EPS Estimate'].rolling(window=4).mean()
+                        
+                        # --- 그래프 그리기 (이중 축) ---
+                        fig, ax1 = plt.subplots(figsize=(10, 5))
+                        
+                        # 축 1: 주가 (왼쪽)
+                        ax1.set_xlabel('Date')
+                        ax1.set_ylabel('Stock Price ($)', color='black')
+                        ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.3, label='Stock Price')
+                        ax1.tick_params(axis='y', labelcolor='black')
+                        
+                        # 축 2: EPS (오른쪽)
+                        ax2 = ax1.twinx()
+                        ax2.set_ylabel('EPS Estimate ($)', color='blue')
+                        
+                        # EPS 예상치 (점+선)
+                        ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='-', linewidth=1.5, label='Quarterly EPS Est.')
+                        
+                        # EPS 이동평균 (주황색 점선)
+                        ax2.plot(df_eps.index, df_eps['EPS_MA'], color='orange', linestyle='--', linewidth=2, label='EPS Trend (4Q MA)')
+                        
+                        ax2.tick_params(axis='y', labelcolor='blue')
+                        
+                        # 타이틀 및 그리드
+                        plt.title(f"{f_ticker} Price vs Earnings (Forward EPS Trend)", fontsize=15)
+                        ax1.grid(True, alpha=0.3)
+                        
+                        # 범례 표시
+                        lines1, labels1 = ax1.get_legend_handles_labels()
+                        lines2, labels2 = ax2.get_legend_handles_labels()
+                        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+                        
+                        st.pyplot(fig)
+                        
+                        # 하단 요약
+                        curr_eps = df_eps['EPS Estimate'].iloc[-1] if not df_eps.empty else 0
+                        prev_eps = df_eps['EPS Estimate'].iloc[-2] if len(df_eps) > 1 else 0
+                        growth = ((curr_eps - prev_eps) / abs(prev_eps) * 100) if prev_eps != 0 else 0
+                        
+                        st.markdown(f"""
+                        #### 💡 분석 요약
+                        - 최근 분기 EPS 예상치: **${curr_eps:.2f}**
+                        - 직전 대비 성장률(Slope): **{growth:+.1f}%** {'📈' if growth > 0 else '📉'}
+                        - **해석:** EPS 추세선(주황색)이 우상향하는데 주가가 눌려있다면 좋은 진입 시점이 될 수 있습니다.
+                        """)
+                        
+                    else:
+                        st.warning("이 종목은 EPS 추정치 데이터를 제공하지 않습니다. (ETF 등은 조회 불가)")
+                        
+                except Exception as e:
+                    st.error(f"데이터 조회 중 오류 발생: {e}")
