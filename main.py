@@ -736,97 +736,138 @@ with tab5:
                 st.error("데이터를 불러올 수 없습니다.")
 
 # --- 탭 6: 펀더멘털 (주가 vs EPS) ---
+# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
 with tab6:
-    st.markdown("### 📊 주가 & 선행 EPS 추세 분석")
-    st.caption("주가(Price)와 시장의 이익 예상치(EPS Consensus)가 동행하는지 확인합니다.")
+    st.markdown("### 📊 펀더멘털 & 컨센서스 분석")
+    st.caption("미국 주식은 **Yahoo Finance**, 한국 주식은 **FnGuide** 데이터를 사용합니다.")
 
     col_f1, col_f2 = st.columns([1, 3])
     
     with col_f1:
-        f_ticker = st.text_input("분석할 티커", value="NVDA", key="fund_ticker")
-        f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
-        
+        default_ticker = st.session_state.get("signal_ticker", "NVDA")
+        f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
+        st.caption("예: 삼성전자(005930.KS), 에코프로(086520.KQ), NVDA")
+
         st.info("""
-        **보는 법:**
-        - **검은선(주가):** 시장 가격
-        - **파란선(EPS):** 이익 예상치
-        - **주황선(EPS MA):** 이익의 장기 추세
-        
-        👉 **파란선(이익)이 계속 오르는데 주가가 내려갔다면?** → 저평가 매수 기회일 수 있습니다.
+        **🇰🇷 한국 주식 (FnGuide)**
+        - 향후 3년치 **연간 실적 추정치**를 보여줍니다.
+        - 매출, 영업이익, EPS의 성장 흐름을 확인하세요.
+
+        **🇺🇸 미국 주식 (Yahoo)**
+        - 과거/미래 EPS 추세 차트를 보여줍니다.
         """)
 
     with col_f2:
-        if st.button("📉 펀더멘털 차트 그리기", type="primary"):
+        if st.button("📉 데이터 가져오기", type="primary"):
             import matplotlib.pyplot as plt
             import yfinance as yf
-            
-            with st.spinner(f"{f_ticker} 데이터 분석 중..."):
+            import requests
+
+            # --- 🇰🇷 한국 주식 로직 (FnGuide 크롤링) ---
+            if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
+                st.subheader(f"🇰🇷 {f_ticker} 실적 컨센서스 (출처: FnGuide)")
+                
+                # FnGuide는 티커 앞의 'A'를 붙여야 함 (예: A005930)
+                code = f_ticker.split('.')[0]
+                url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Consensus.asp?pGB=1&gicode=A{code}"
+                
                 try:
-                    # 1. 주가 데이터 가져오기
-                    end_d = datetime.date.today()
-                    start_d = end_d - datetime.timedelta(days=365 * f_years)
-                    df_price = get_data(f_ticker, start_d, end_d)
+                    # pandas의 read_html로 표를 통째로 긁어옴
+                    dfs = pd.read_html(url, header=0)
                     
-                    # 2. EPS 데이터 가져오기 (yfinance)
-                    tick = yf.Ticker(f_ticker)
-                    df_eps = tick.get_earnings_dates()
-                    
-                    if df_eps is not None and not df_eps.empty:
-                        # EPS 데이터 전처리
-                        df_eps = df_eps.sort_index()
-                        df_eps = df_eps.dropna(subset=['EPS Estimate'])
-                        # 조회 기간 내 데이터만 필터링
-                        df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
+                    # 보통 첫 번째 표가 '연간 컨센서스'
+                    if len(dfs) > 0:
+                        df_con = dfs[0]
                         
-                        # EPS 이동평균 (4분기 = 1년 추세)
-                        df_eps['EPS_MA'] = df_eps['EPS Estimate'].rolling(window=4).mean()
+                        # 표 정리 (필요한 행만 추출)
+                        # 보통 인덱스 컬럼 이름이 'IFRS연결' 등으로 되어 있음.
+                        # 매출액, 영업이익, 당기순이익, EPS 행만 찾아서 보여주기
+                        target_rows = ["매출액", "영업이익", "당기순이익", "EPS(원)"]
                         
-                        # --- 그래프 그리기 (이중 축) ---
-                        fig, ax1 = plt.subplots(figsize=(10, 5))
+                        # 첫번째 컬럼을 인덱스로 설정
+                        df_con.set_index(df_con.columns[0], inplace=True)
                         
-                        # 축 1: 주가 (왼쪽)
-                        ax1.set_xlabel('Date')
-                        ax1.set_ylabel('Stock Price ($)', color='black')
-                        ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.3, label='Stock Price')
-                        ax1.tick_params(axis='y', labelcolor='black')
+                        # 필요한 행만 필터링 (비슷한 이름 포함)
+                        filtered_df = df_con.loc[df_con.index.str.contains("|".join(target_rows), na=False)]
                         
-                        # 축 2: EPS (오른쪽)
-                        ax2 = ax1.twinx()
-                        ax2.set_ylabel('EPS Estimate ($)', color='blue')
-                        
-                        # EPS 예상치 (점+선)
-                        ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='-', linewidth=1.5, label='Quarterly EPS Est.')
-                        
-                        # EPS 이동평균 (주황색 점선)
-                        ax2.plot(df_eps.index, df_eps['EPS_MA'], color='orange', linestyle='--', linewidth=2, label='EPS Trend (4Q MA)')
-                        
-                        ax2.tick_params(axis='y', labelcolor='blue')
-                        
-                        # 타이틀 및 그리드
-                        plt.title(f"{f_ticker} Price vs Earnings (Forward EPS Trend)", fontsize=15)
-                        ax1.grid(True, alpha=0.3)
-                        
-                        # 범례 표시
-                        lines1, labels1 = ax1.get_legend_handles_labels()
-                        lines2, labels2 = ax2.get_legend_handles_labels()
-                        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-                        
-                        st.pyplot(fig)
-                        
-                        # 하단 요약
-                        curr_eps = df_eps['EPS Estimate'].iloc[-1] if not df_eps.empty else 0
-                        prev_eps = df_eps['EPS Estimate'].iloc[-2] if len(df_eps) > 1 else 0
-                        growth = ((curr_eps - prev_eps) / abs(prev_eps) * 100) if prev_eps != 0 else 0
-                        
-                        st.markdown(f"""
-                        #### 💡 분석 요약
-                        - 최근 분기 EPS 예상치: **${curr_eps:.2f}**
-                        - 직전 대비 성장률(Slope): **{growth:+.1f}%** {'📈' if growth > 0 else '📉'}
-                        - **해석:** EPS 추세선(주황색)이 우상향하는데 주가가 눌려있다면 좋은 진입 시점이 될 수 있습니다.
-                        """)
-                        
+                        if filtered_df.empty:
+                             st.warning("컨센서스 데이터가 비어있습니다.")
+                             st.dataframe(df_con) # 전체라도 보여줌
+                        else:
+                            st.write("#### 📅 연간 실적 추정치 (Consensus)")
+                            st.dataframe(filtered_df, use_container_width=True)
+                            
+                            st.markdown(f"👉 [FnGuide 상세 페이지 바로가기]({url})")
+                            
+                            # 간단한 차트 (영업이익 추세)
+                            try:
+                                # 행/열 전치하여 차트 그리기 좋게 변환
+                                op_profit = df_con.loc[df_con.index.str.contains("영업이익", na=False)].iloc[0]
+                                # 최근 데이터(결산년도)만 가져오기 (마지막 컬럼들은 전년동기비 등이 섞여있을 수 있음)
+                                # 날짜 형식(YYYY/MM)인 컬럼만 선택
+                                valid_cols = [c for c in op_profit.index if "/" in str(c)]
+                                op_data = op_profit[valid_cols]
+                                
+                                # 숫자로 변환 (쉼표 제거)
+                                op_data = op_data.astype(str).str.replace(',', '').astype(float)
+                                
+                                fig, ax = plt.subplots(figsize=(8, 4))
+                                ax.plot(op_data.index, op_data.values, marker='o', linestyle='-', color='red')
+                                ax.set_title("Operating Profit Trend (Est.)")
+                                ax.grid(True, alpha=0.3)
+                                for i, v in enumerate(op_data.values):
+                                    ax.text(i, v, f"{v:,.0f}", ha='center', va='bottom')
+                                st.pyplot(fig)
+                            except:
+                                st.caption("차트 생성 실패 (데이터 형식 문제)")
+
                     else:
-                        st.warning("이 종목은 EPS 추정치 데이터를 제공하지 않습니다. (ETF 등은 조회 불가)")
-                        
+                        st.error("FnGuide에서 데이터를 찾을 수 없습니다.")
+
                 except Exception as e:
-                    st.error(f"데이터 조회 중 오류 발생: {e}")
+                    st.error(f"FnGuide 크롤링 실패: {e}")
+                    st.caption("해당 종목의 컨센서스가 없거나 웹페이지 구조가 변경되었을 수 있습니다.")
+
+            # --- 🇺🇸 미국 주식 로직 (기존 코드 유지) ---
+            else:
+                st.subheader(f"🇺🇸 {f_ticker} Forward EPS Trend")
+                with st.spinner("미국 주식 데이터 분석 중..."):
+                    try:
+                        end_d = datetime.date.today()
+                        start_d = end_d - datetime.timedelta(days=365 * f_years)
+                        df_price = get_data(f_ticker, start_d, end_d)
+                        
+                        tick = yf.Ticker(f_ticker)
+                        df_eps = tick.get_earnings_dates()
+                        
+                        if df_eps is not None and not df_eps.empty:
+                            df_eps = df_eps.sort_index()
+                            df_eps = df_eps.dropna(subset=['EPS Estimate'])
+                            df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
+                            
+                            if df_eps.empty:
+                                st.warning("조회 기간 내 EPS 데이터가 없습니다.")
+                            else:
+                                df_eps['EPS_MA'] = df_eps['EPS Estimate'].rolling(window=4).mean()
+                                
+                                fig, ax1 = plt.subplots(figsize=(10, 5))
+                                ax1.set_xlabel('Date')
+                                ax1.set_ylabel('Price ($)', color='black')
+                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.3, label='Price')
+                                
+                                ax2 = ax1.twinx()
+                                ax2.set_ylabel('EPS Est ($)', color='blue')
+                                ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', label='EPS Est')
+                                ax2.plot(df_eps.index, df_eps['EPS_MA'], color='orange', linestyle='--', label='EPS Trend')
+                                
+                                plt.title(f"{f_ticker} Price vs EPS Consensus")
+                                ax1.grid(True, alpha=0.3)
+                                lines1, labels1 = ax1.get_legend_handles_labels()
+                                lines2, labels2 = ax2.get_legend_handles_labels()
+                                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+                                
+                                st.pyplot(fig)
+                        else:
+                            st.warning("EPS 추정치 데이터가 없습니다.")
+                    except Exception as e:
+                        st.error(f"오류 발생: {e}")
