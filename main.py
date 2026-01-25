@@ -737,8 +737,8 @@ with tab5:
 
 # --- 탭 6: 펀더멘털 (주가 vs EPS) ---
 with tab6:
-    st.markdown("### 📊 펀더멘털 & 실적 분석")
-    st.caption("주가(Price) 흐름과 기업의 **실적(영업이익/EPS)** 추이를 함께 비교합니다.")
+    st.markdown("### 📊 펀더멘털 & EPS 추세 분석")
+    st.caption("주가(Price) 흐름과 기업의 **EPS(주당순이익)** 추이를 함께 비교합니다.")
 
     col_f1, col_f2 = st.columns([1, 3])
     
@@ -747,7 +747,7 @@ with tab6:
         f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
         f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
         
-        # [NEW] 국장용 옵션 추가
+        # 한국 주식일 때만 연간/분기 선택 옵션 표시
         korea_period = "분기(Quarter)" # 기본값
         if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
             korea_period = st.radio("🇰🇷 실적 기준 선택", ["연간(Annual)", "분기(Quarter)"])
@@ -755,10 +755,10 @@ with tab6:
         st.info("""
         **차트 보는 법:**
         - **⚫ 회색선 (Left):** 주가 (Price)
-        - **📊 막대/점 (Right):** 실적 (영업이익/EPS)
+        - **🔵 파란선 (Right):** EPS (주당순이익)
         
-        👉 **실적 막대는 계속 커지는데 주가 선이 내려간다면?**
-        = **저평가 기회** (실적 장세 기대)
+        👉 **주가는 떨어지는데 EPS 선이 올라가고 있다면?**
+        = **실적 기반 저평가** (매수 기회)
         """)
 
     with col_f2:
@@ -770,10 +770,10 @@ with tab6:
             import datetime
 
             # -----------------------------------------------------------
-            # 🇰🇷 한국 주식 로직 (네이버 금융 + 주가 연동)
+            # 🇰🇷 한국 주식 로직 (네이버 금융 + EPS Line Chart)
             # -----------------------------------------------------------
             if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
-                st.subheader(f"🇰🇷 {f_ticker} 주가 vs 실적 ({korea_period})")
+                st.subheader(f"🇰🇷 {f_ticker} 주가 vs EPS ({korea_period})")
                 code = f_ticker.split('.')[0]
                 url = f"https://finance.naver.com/item/main.naver?code={code}"
                 
@@ -791,7 +791,7 @@ with tab6:
                             break
                     
                     if df_fin is not None:
-                        # 컬럼 중복 처리
+                        # 컬럼 중복 처리 (날짜 중복 방지)
                         raw_cols = [c[1] for c in df_fin.columns]
                         new_cols = []
                         counts = {}
@@ -803,39 +803,36 @@ with tab6:
 
                         # 2. 데이터 분류 (연간 vs 분기)
                         # 네이버는 보통 앞쪽 4개가 연간, 뒤쪽 6개가 분기입니다.
-                        # 날짜 형식을 보고 자동으로 나눕니다.
-                        annual_cols = [c for c in df_fin.columns if len(c) <= 7 and "E" not in c and "." in c] # 2023.12 등
-                        quarter_cols = [c for c in df_fin.columns if len(c) > 5 and "." in c and c not in annual_cols] # 분기쪽 (중복처리된 이름 포함)
+                        annual_cols = [c for c in df_fin.columns if len(c) <= 7 and "E" not in c and "." in c]
                         
-                        # (E) 포함된 추정치 컬럼도 포함시키기 위해 로직 유연화
                         target_cols = []
                         if "연간" in korea_period:
-                            # 20xx.xx 형태 (앞쪽 컬럼들)
                             target_cols = [c for c in df_fin.columns[:4]] 
                         else:
-                            # 뒤쪽 컬럼들 (분기)
                             target_cols = [c for c in df_fin.columns[4:]]
 
-                        # 영업이익 데이터 추출
-                        row_name = "영업이익"
-                        if not df_fin.index.str.contains(row_name).any(): row_name = "당기순이익" # 영업이익 없으면 순이익
+                        # [수정] 'EPS(원)' 데이터 추출
+                        row_name = "EPS(원)"
+                        if not df_fin.index.str.contains(row_name).any(): 
+                            # EPS가 없으면 순이익으로 대체하거나 경고
+                            row_name = "당기순이익" 
+                            st.warning("EPS 데이터를 찾을 수 없어 '당기순이익'으로 대체합니다.")
+
+                        eps_row = df_fin.loc[df_fin.index.str.contains(row_name, na=False)].iloc[0][target_cols]
                         
-                        op_row = df_fin.loc[df_fin.index.str.contains(row_name, na=False)].iloc[0][target_cols]
-                        
-                        # 데이터 정제 (날짜 변환 및 숫자 변환)
+                        # 데이터 정제
                         dates = []
                         values = []
                         valid_cols = []
                         
-                        for col, val in op_row.items():
+                        for col, val in eps_row.items():
                             try:
-                                # 날짜 파싱 (2023.12 (1) -> 2023-12-01)
-                                clean_date_str = col.split('(')[0].strip().replace('(E)', '') # (E), (1) 제거
+                                # 날짜 파싱
+                                clean_date_str = col.split('(')[0].strip().replace('(E)', '')
                                 dt = datetime.datetime.strptime(clean_date_str, "%Y.%m")
-                                # 해당 월의 마지막 날이나 15일쯤으로 설정해서 그래프 중간에 오게 함
-                                dt = dt.replace(day=15)
+                                dt = dt.replace(day=15) # 월 중순으로 설정
                                 
-                                # 값 파싱
+                                # 값 파싱 ((E)예상치 포함해서 숫자만 추출)
                                 clean_val = float(str(val).replace(',', '').strip())
                                 
                                 dates.append(dt)
@@ -843,53 +840,56 @@ with tab6:
                                 valid_cols.append(col)
                             except: pass
                         
-                        # 3. 주가 데이터 가져오기 (기간 매칭)
+                        # 3. 주가 데이터 및 차트 그리기
                         if dates:
                             start_d_price = min(dates) - datetime.timedelta(days=90)
                             end_d_price = datetime.date.today()
                             df_price = get_data(f_ticker, start_d_price, end_d_price)
 
-                            # --- 📊 대망의 차트 그리기 ---
+                            # --- 📊 차트 그리기 (EPS Line) ---
                             fig, ax1 = plt.subplots(figsize=(10, 5))
 
-                            # 축 1: 주가 (선 그래프) - 뒤에 깔리게 zorder 낮춤
+                            # 축 1: 주가 (회색 선)
                             ax1.set_xlabel('Date')
                             ax1.set_ylabel('Price (KRW)', color='gray')
-                            ax1.plot(df_price['Date'], df_price['Close'], color='gray', alpha=0.6, linewidth=1.5, label='Stock Price', zorder=1)
+                            ax1.plot(df_price['Date'], df_price['Close'], color='gray', alpha=0.5, linewidth=1.5, label='Stock Price', zorder=1)
                             ax1.tick_params(axis='y', labelcolor='gray')
 
-                            # 축 2: 실적 (막대 그래프) - 위에 오게 zorder 높임
+                            # 축 2: EPS (파란색 선 + 마커) - [변경됨] Bar -> Plot
                             ax2 = ax1.twinx()
-                            ax2.set_ylabel(f'{row_name} (100 Mil KRW)', color='crimson')
+                            ax2.set_ylabel(f'{row_name}', color='blue')
                             
-                            # 막대 그래프 (너비 조절)
-                            width_days = 60 if "연간" in korea_period else 20
-                            ax2.bar(dates, values, color='crimson', alpha=0.5, width=width_days, label=f'{row_name}', zorder=2)
+                            # EPS 선 그래프
+                            ax2.plot(dates, values, color='blue', marker='o', linestyle='-', linewidth=2, markersize=6, label=f'{row_name}', zorder=2)
                             
                             # 숫자 표시
                             for d, v in zip(dates, values):
-                                ax2.text(d, v, f"{v:,.0f}", ha='center', va='bottom', fontsize=9, color='darkred', fontweight='bold')
+                                ax2.text(d, v, f"{v:,.0f}", ha='center', va='bottom', fontsize=9, color='darkblue', fontweight='bold')
 
-                            ax2.tick_params(axis='y', labelcolor='crimson')
+                            ax2.tick_params(axis='y', labelcolor='blue')
                             
-                            # 날짜 포맷 (X축)
+                            # 날짜 포맷
                             ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
                             
-                            plt.title(f"{f_ticker} Price vs {row_name} ({korea_period})", fontsize=15)
+                            plt.title(f"{f_ticker} Price vs EPS ({korea_period})", fontsize=15)
                             ax1.grid(True, alpha=0.3)
                             
-                            # 범례 합치기
+                            # 범례
                             lines1, labels1 = ax1.get_legend_handles_labels()
                             lines2, labels2 = ax2.get_legend_handles_labels()
                             ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
 
                             st.pyplot(fig)
                             
-                            # 재무제표 표도 아래에 보여줌
-                            st.write("#### 📋 상세 재무제표")
-                            st.dataframe(df_fin.loc[:, target_cols], use_container_width=True)
+                            st.write("#### 📋 상세 재무제표 (EPS)")
+                            st.dataframe(df_fin.loc[df_fin.index.str.contains(row_name, na=False)][target_cols], use_container_width=True)
+                            
+                            # 컨센서스 포함 여부 알림
+                            if any("(E)" in c for c in target_cols):
+                                st.caption("※ 표의 (E)는 증권사 컨센서스(예상치)가 반영된 수치입니다.")
+                                
                         else:
-                            st.warning("차트를 그릴 수 있는 유효한 날짜/데이터가 없습니다.")
+                            st.warning("유효한 EPS 데이터 날짜를 찾을 수 없습니다.")
 
                     else:
                         st.warning("재무제표 데이터를 찾을 수 없습니다.")
