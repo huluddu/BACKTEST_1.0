@@ -736,6 +736,7 @@ with tab5:
                 st.error("데이터를 불러올 수 없습니다.")
 
 # --- 탭 6: 펀더멘털 (주가 vs EPS) ---
+# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
 with tab6:
     st.markdown("### 📊 펀더멘털 & 컨센서스 분석")
     st.caption("미국 주식은 **Yahoo Finance**, 한국 주식은 **FnGuide** 데이터를 사용합니다.")
@@ -745,59 +746,39 @@ with tab6:
     with col_f1:
         default_ticker = st.session_state.get("signal_ticker", "NVDA")
         f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
-        
-        # [복구된 코드] 기간 설정 슬라이더 (이게 없어서 에러가 났습니다)
         f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
         
         st.caption("예: 삼성전자(005930.KS), 에코프로(086520.KQ), NVDA")
-
-        st.info("""
-        **🇰🇷 한국 주식 (FnGuide)**
-        - 향후 3년치 **연간 실적 추정치**를 보여줍니다.
-        - 매출, 영업이익, EPS의 성장 흐름을 확인하세요.
-
-        **🇺🇸 미국 주식 (Yahoo)**
-        - 과거/미래 EPS 추세 차트를 보여줍니다.
-        """)
+        st.info("미국 주식은 EPS 추세 차트를, 한국 주식은 실적 표를 보여줍니다.")
 
     with col_f2:
         if st.button("📉 데이터 가져오기", type="primary"):
             import matplotlib.pyplot as plt
             import yfinance as yf
             import requests
-            import datetime # 날짜 계산용
+            import datetime
 
-            # --- 🇰🇷 한국 주식 로직 (FnGuide 크롤링) ---
+            # --- 🇰🇷 한국 주식 로직 (FnGuide) ---
             if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
-                st.subheader(f"🇰🇷 {f_ticker} 실적 컨센서스 (출처: FnGuide)")
-                
-                # FnGuide는 티커 앞의 'A'를 붙여야 함 (예: A005930)
+                st.subheader(f"🇰🇷 {f_ticker} 실적 컨센서스 (FnGuide)")
                 code = f_ticker.split('.')[0]
                 url = f"https://comp.fnguide.com/SVO2/ASP/SVD_Consensus.asp?pGB=1&gicode=A{code}"
                 
                 try:
-                    # pandas의 read_html로 표를 통째로 긁어옴
                     dfs = pd.read_html(url, header=0)
-                    
-                    # 보통 첫 번째 표가 '연간 컨센서스'
                     if len(dfs) > 0:
                         df_con = dfs[0]
-                        
                         target_rows = ["매출액", "영업이익", "당기순이익", "EPS(원)"]
                         df_con.set_index(df_con.columns[0], inplace=True)
-                        
-                        # 필요한 행만 필터링
                         filtered_df = df_con.loc[df_con.index.str.contains("|".join(target_rows), na=False)]
                         
                         if filtered_df.empty:
                              st.warning("컨센서스 데이터가 비어있습니다.")
                              st.dataframe(df_con)
                         else:
-                            st.write("#### 📅 연간 실적 추정치 (Consensus)")
+                            st.write("#### 📅 연간 실적 추정치")
                             st.dataframe(filtered_df, use_container_width=True)
-                            st.markdown(f"👉 [FnGuide 상세 페이지 바로가기]({url})")
                             
-                            # 간단한 차트 (영업이익 추세)
                             try:
                                 op_profit = df_con.loc[df_con.index.str.contains("영업이익", na=False)].iloc[0]
                                 valid_cols = [c for c in op_profit.index if "/" in str(c)]
@@ -808,15 +789,12 @@ with tab6:
                                 ax.plot(op_data.index, op_data.values, marker='o', linestyle='-', color='red')
                                 ax.set_title("Operating Profit Trend (Est.)")
                                 ax.grid(True, alpha=0.3)
-                                for i, v in enumerate(op_data.values):
-                                    ax.text(i, v, f"{v:,.0f}", ha='center', va='bottom')
                                 st.pyplot(fig)
                             except: pass
                     else:
-                        st.error("FnGuide에서 데이터를 찾을 수 없습니다.")
-
+                        st.error("데이터를 찾을 수 없습니다.")
                 except Exception as e:
-                    st.error(f"FnGuide 크롤링 실패: {e}")
+                    st.error(f"오류: {e}")
 
             # --- 🇺🇸 미국 주식 로직 (Yahoo) ---
             else:
@@ -824,7 +802,7 @@ with tab6:
                 with st.spinner("미국 주식 데이터 분석 중..."):
                     try:
                         end_d = datetime.date.today()
-                        start_d = end_d - datetime.timedelta(days=365 * f_years) # 여기서 f_years를 사용합니다
+                        start_d = end_d - datetime.timedelta(days=365 * f_years)
                         df_price = get_data(f_ticker, start_d, end_d)
                         
                         tick = yf.Ticker(f_ticker)
@@ -832,7 +810,14 @@ with tab6:
                         
                         if df_eps is not None and not df_eps.empty:
                             df_eps = df_eps.sort_index()
+                            
+                            # [핵심 수정] 타임존 정보 제거 (tz_localize(None))
+                            if df_eps.index.tz is not None:
+                                df_eps.index = df_eps.index.tz_localize(None)
+                            
                             df_eps = df_eps.dropna(subset=['EPS Estimate'])
+                            
+                            # 타임존을 제거했으므로 이제 비교 가능
                             df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
                             
                             if df_eps.empty:
