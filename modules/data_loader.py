@@ -4,6 +4,7 @@ import FinanceDataReader as fdr
 import yfinance as yf
 import datetime
 
+# --- 1. 주가/시세 데이터 가져오기 (FDR + Yfinance 하이브리드) ---
 @st.cache_data(show_spinner=False, ttl=1800)
 def get_data(ticker, start_date, end_date):
     """
@@ -22,49 +23,43 @@ def get_data(ticker, start_date, end_date):
         fdr_code = ticker.split('.')[0]
         is_korean = True
     
-    # 암호화폐 (BTC-USD 등은 그대로 유지, 혹은 FDR 포맷에 맞게 수정 가능)
-    # FDR은 암호화폐 티커로 'BTC/KRW', 'ETH/USD' 등을 씁니다.
-    # 만약 사용자가 'BTC-USD' (Yahoo식)로 입력했다면 변환 필요할 수 있음.
-    
     try:
         # 2. FDR로 데이터 조회
         # FDR은 start, end가 문자열이나 datetime 모두 가능
         df = fdr.DataReader(fdr_code, start_date, end_date)
         
-        # 데이터가 없는 경우 (상장폐지, 티커 오류 등)
+        # 데이터가 없는 경우
         if df is None or df.empty:
             return pd.DataFrame()
 
         # 3. 데이터 표준화 (앱 전체에서 통일된 컬럼명 사용)
-        # FDR은 인덱스가 Date인 경우가 많음 -> 컬럼으로 뺌
         df = df.reset_index()
         
-        # 컬럼 이름이 'Date'인지 'index'인지 확인 후 'Date'로 통일
+        # 날짜 컬럼 이름 통일 ('Date' 또는 'index' -> 'Date')
         if 'Date' not in df.columns:
             if 'index' in df.columns:
                 df.rename(columns={'index': 'Date'}, inplace=True)
             else:
-                # 인덱스 이름조차 없으면 첫 번째 컬럼을 날짜로 간주
                 df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
 
-        # 날짜 형식 통일 (datetime64)
+        # 날짜 형식 통일
         df['Date'] = pd.to_datetime(df['Date'])
         
-        # 4. 필수 컬럼 존재 여부 확인 및 이름 변경
-        # FDR은 보통 'Open', 'High', 'Low', 'Close', 'Volume'을 반환함
-        # 하지만 일부 소스(FRED 등)는 다를 수 있음. 주식 기준으론 대부분 맞음.
+        # 4. 필수 컬럼 확보 (Open, High, Low, Close, Volume)
         required_cols = ['Open', 'High', 'Low', 'Close']
         for col in required_cols:
             if col not in df.columns:
-                # 만약 Open/High/Low가 없고 Close만 있다면(종가 데이터만 있는 경우) 복사해서 채움
+                # 종가만 있는 경우 다른 컬럼도 종가로 채움
                 if 'Close' in df.columns:
                     df[col] = df['Close']
         
-        # Change(등락률) 컬럼은 있으면 좋고 없으면 말고
-        
-        # 5. 정렬 (날짜 오름차순)
+        # 5. 정렬
         df = df.sort_values('Date').reset_index(drop=True)
         
+        # 필요한 컬럼만 리턴 (Volume이 없으면 0으로 채움)
+        if 'Volume' not in df.columns:
+            df['Volume'] = 0
+            
         return df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
 
     except Exception as e:
@@ -75,5 +70,30 @@ def get_data(ticker, start_date, end_date):
             df_yf = df_yf.reset_index()
             return df_yf[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
         except:
-            print(f"데이터 로드 실패 ({ticker}): {e}")
             return pd.DataFrame()
+
+# --- 2. [복구됨] 기업 기본 정보 가져오기 ---
+@st.cache_data(show_spinner=False, ttl=3600)
+def get_fundamental_info(ticker):
+    """
+    yfinance를 통해 기업의 기본 정보(이름, 섹터, 시총 등)를 가져옵니다.
+    """
+    try:
+        # 한국 주식도 yfinance info는 꽤 잘 나옵니다 (상세 재무 제외)
+        t = yf.Ticker(ticker)
+        info = t.info
+        
+        return {
+            "name": info.get("longName", ticker),
+            "symbol": info.get("symbol", ticker),
+            "sector": info.get("sector", "N/A"),
+            "industry": info.get("industry", "N/A"),
+            "marketCap": info.get("marketCap", 0),
+            "summary": info.get("longBusinessSummary", "정보 없음"),
+            "website": info.get("website", ""),
+            "forwardPE": info.get("forwardPE", 0),
+            "trailingPE": info.get("trailingPE", 0),
+            "dividendYield": info.get("dividendYield", 0),
+        }
+    except Exception as e:
+        return None
