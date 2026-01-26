@@ -6,24 +6,31 @@ import datetime
 
 @st.cache_data(show_spinner=False, ttl=1800)
 def get_data(ticker, start_date, end_date):
-    if not ticker: return pd.DataFrame()
-    fdr_code = ticker.split('.')[0] if ticker.endswith((".KS", ".KQ")) else ticker
-    try:
-        df = fdr.DataReader(fdr_code, start_date, end_date)
-        if df is None or df.empty: return pd.DataFrame()
-        df = df.reset_index()
-        if 'Date' not in df.columns:
-            df.rename(columns={'index': 'Date'} if 'index' in df.columns else {df.columns[0]: 'Date'}, inplace=True)
-        df['Date'] = pd.to_datetime(df['Date'])
-        for col in ['Open', 'High', 'Low', 'Close']:
-            if col not in df.columns and 'Close' in df.columns: df[col] = df['Close']
-        if 'Volume' not in df.columns: df['Volume'] = 0
-        return df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].sort_values('Date').reset_index(drop=True)
-    except:
-        try:
-            df = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=True).reset_index()
-            return df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
-        except: return pd.DataFrame()
+    # 1. 한국 지수 및 주요 글로벌 지수 (FDR이 더 안정적)
+    # VKOSPI, VIX, KOSPI, KOSDAQ, USD/KRW 등
+    fdr_tickers = ["VKOSPI", "VIX", "KS11", "KQ11", "USD/KRW"]
+    
+    if ticker.upper() in fdr_tickers:
+        df = fdr.DataReader(ticker, start_date, end_date)
+    else:
+        # 2. 일반 미국 주식/ETF는 yfinance 시도
+        df = yf.download(ticker, start=start_date, end=end_date)
+        
+    # 3. 데이터가 비어있는지 확인 (KeyError 방지 핵심!)
+    if df.empty:
+        # yfinance가 실패했다면 마지막 수단으로 FDR 시도
+        df = fdr.DataReader(ticker, start_date, end_date)
+    
+    if df.empty:
+        raise ValueError(f"[{ticker}] 데이터를 모든 소스에서 찾을 수 없습니다.")
+
+    # 컬럼명 통일 및 인덱스 초기화
+    df = df.reset_index()
+    # FDR과 yfinance의 날짜 컬럼명을 'Date'로 통일
+    if 'Date' not in df.columns and 'index' in df.columns:
+        df.rename(columns={'index': 'Date'}, inplace=True)
+        
+    return df
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_fundamental_info(ticker):
@@ -45,3 +52,4 @@ def get_fundamental_info(ticker):
             "DividendYield": info.get("dividendYield", 0)
         }
     except: return default
+
