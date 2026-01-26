@@ -1,55 +1,53 @@
-import streamlit as st
-import pandas as pd
-import FinanceDataReader as fdr
 import yfinance as yf
-import datetime
+import FinanceDataReader as fdr
+import pandas as pd
+import streamlit as st
 
-@st.cache_data(show_spinner=False, ttl=1800)
 def get_data(ticker, start_date, end_date):
-    # 1. 한국 지수 및 주요 글로벌 지수 (FDR이 더 안정적)
-    # VKOSPI, VIX, KOSPI, KOSDAQ, USD/KRW 등
-    fdr_tickers = ["VKOSPI", "VIX", "KS11", "KQ11", "USD/KRW"]
-    
-    if ticker.upper() in fdr_tickers:
-        df = fdr.DataReader(ticker, start_date, end_date)
-    else:
-        # 2. 일반 미국 주식/ETF는 yfinance 시도
-        df = yf.download(ticker, start=start_date, end=end_date)
-        
-    # 3. 데이터가 비어있는지 확인 (KeyError 방지 핵심!)
-    if df.empty:
-        # yfinance가 실패했다면 마지막 수단으로 FDR 시도
-        df = fdr.DataReader(ticker, start_date, end_date)
-    
-    if df.empty:
-        raise ValueError(f"[{ticker}] 데이터를 모든 소스에서 찾을 수 없습니다.")
+    ticker = ticker.upper()
+    df = pd.DataFrame()
 
-    # 컬럼명 통일 및 인덱스 초기화
-    df = df.reset_index()
-    # FDR과 yfinance의 날짜 컬럼명을 'Date'로 통일
-    if 'Date' not in df.columns and 'index' in df.columns:
-        df.rename(columns={'index': 'Date'}, inplace=True)
-        
-    return df
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def get_fundamental_info(ticker):
-    default = {"Name": ticker, "Symbol": ticker, "Sector": "-", "Industry": "-", "MarketCap": 0, "Beta": 0.0, "Summary": "정보 없음", "Website": "", "ForwardPE": 0, "TrailingPE": 0, "DividendYield": 0}
     try:
-        info = yf.Ticker(ticker).info
-        if not info: return default
-        return {
-            "Name": info.get("longName", ticker),
-            "Symbol": info.get("symbol", ticker),
-            "Sector": info.get("sector", "N/A"),
-            "Industry": info.get("industry", "N/A"),
-            "MarketCap": info.get("marketCap", 0),
-            "Beta": info.get("beta", 0.0),
-            "Summary": info.get("longBusinessSummary", "정보 없음"),
-            "Website": info.get("website", ""),
-            "ForwardPE": info.get("forwardPE", 0),
-            "TrailingPE": info.get("trailingPE", 0),
-            "DividendYield": info.get("dividendYield", 0)
-        }
-    except: return default
+        # 1. 국장 지수 및 특정 티커는 FDR 우선
+        fdr_priority = ["VKOSPI", "KS11", "KQ11", "USD/KRW", "VIX", "RVX"]
+        
+        if ticker in fdr_priority:
+            df = fdr.DataReader(ticker, start_date, end_date)
+        else:
+            # 2. 그 외(미장 등)는 yfinance 시도
+            # 최근 yfinance는 '^' 유무에 예민하므로 지수는 붙여줌
+            yf_ticker = ticker
+            if ticker in ["GSPC", "IXIC", "DJI", "N225"]:
+                yf_ticker = f"^{ticker}"
+            
+            df = yf.download(yf_ticker, start=start_date, end=end_date, progress=False)
 
+        # 3. yfinance 실패 시 FDR로 최종 백업
+        if df.empty:
+            df = fdr.DataReader(ticker, start_date, end_date)
+
+    except Exception as e:
+        st.error(f"데이터 로드 중 치명적 에러 ({ticker}): {e}")
+        return pd.DataFrame()
+
+    # --- 여기서부터 KeyError: 'Date'를 잡는 핵심 로직 ---
+    
+    if df.empty:
+        return pd.DataFrame()
+
+    # A. yfinance 멀티 인덱스 컬럼 해결 (최근 업데이트 이슈)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # B. 인덱스(날짜)를 컬럼으로 빼내기
+    df = df.reset_index()
+
+    # C. 날짜 컬럼 이름을 무조건 'Date'로 강제 통일
+    # 'index', 'Date', 'datetime', 'Date' 등 어떤 이름으로 오든 첫 번째 컬럼을 Date로 간주
+    first_col = df.columns[0]
+    df.rename(columns={first_col: 'Date'}, inplace=True)
+
+    # D. 'Date' 컬럼을 실제 datetime 형식으로 변환 (정렬 및 계산용)
+    df['Date'] = pd.to_datetime(df['Date'])
+    
+    return df
