@@ -9,5 +9,3 @@ setuptools
 gspread
 oauth2client
 lxml
-finance-datareader
-
