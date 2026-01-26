@@ -43,7 +43,6 @@ _init_default_state()
 # [복구 완료] 사용자님의 원본 프리셋 데이터 전체
 # ---------------------------------------------------------
 DEFAULT_PRESETS = {
-    "SOXL 도전 전략": {"signal_ticker": "SOXL", "trade_ticker": "SOXL", "offset_cl_buy": 1, "buy_operator": ">", "offset_ma_buy": 1, "ma_buy": 20, "offset_cl_sell": 1, "sell_operator": ">", "offset_ma_sell": 20, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 10, "ma_compare_short": 5, "offset_compare_long": 20, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
     "SOXL 안전 전략": {"signal_ticker": "SOXL", "trade_ticker": "SOXL", "offset_cl_buy": 10, "buy_operator": "<", "offset_ma_buy": 10, "ma_buy": 60, "offset_cl_sell": 50, "sell_operator": ">", "offset_ma_sell": 10, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 20, "ma_compare_short": 10, "offset_compare_long": 50, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
     "SOXL 극도전 전략": {"signal_ticker": "SOXL", "trade_ticker": "SOXL", "offset_cl_buy": 1, "buy_operator": "<", "offset_ma_buy": 5, "ma_buy": 5, "offset_cl_sell": 1, "sell_operator": "<", "offset_ma_sell": 10, "ma_sell": 120, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 10, "ma_compare_short": 20, "offset_compare_long": 50, "ma_compare_long": 120, "stop_loss_pct": 49.0, "take_profit_pct": 25.0},
     "TSLL 안전 전략": {"signal_ticker": "TSLL", "trade_ticker": "TSLL", "offset_cl_buy": 20, "buy_operator": "<", "offset_ma_buy": 5, "ma_buy": 10, "offset_cl_sell": 1, "sell_operator": ">", "offset_ma_sell": 1, "ma_sell": 60, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 20, "ma_compare_short": 50, "offset_compare_long": 20, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 20.0},
@@ -55,11 +54,9 @@ DEFAULT_PRESETS = {
     "BITX-TQQQ 안전": {"signal_ticker": "BITX", "trade_ticker": "TQQQ", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 10, "ma_buy": 20, "offset_cl_sell": 50, "sell_operator": ">", "offset_ma_sell": 1, "ma_sell": 5, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 50, "ma_compare_short": 5, "offset_compare_long": 1, "ma_compare_long": 50, "stop_loss_pct": 0.0, "take_profit_pct": 15.0},
     "TQQQ 대박스": {"signal_ticker": "TQQQ", "trade_ticker": "TQQQ", "offset_cl_buy": 20, "buy_operator": ">", "offset_ma_buy": 1, "ma_buy": 10, "offset_cl_sell": 1, "sell_operator": "<", "offset_ma_sell": 50, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 50, "ma_compare_short": 20, "offset_compare_long": 50, "ma_compare_long": 50, "stop_loss_pct": 0.0, "take_profit_pct": 25.0},
     "TQQQ 초안전": {"signal_ticker": "TQQQ", "trade_ticker": "TQQQ", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 1, "ma_buy": 120, "offset_cl_sell": 20, "sell_operator": "<", "offset_ma_sell": 1, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 1, "ma_compare_short": 1, "offset_compare_long": 5, "ma_compare_long": 120, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
-    "미30년국채": {"signal_ticker": "453850", "trade_ticker": "453850", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 10, "ma_buy": 60, "offset_cl_sell": 20, "sell_operator": ">", "offset_ma_sell": 50, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 5, "ma_compare_short": 120, "offset_compare_long": 1, "ma_compare_long": 10, "stop_loss_pct": 25.0, "take_profit_pct": 15.0},
-    "453850 ACE 미국30년국채 전략": {"signal_ticker": "453850", "trade_ticker": "453850", "offset_cl_buy": 16, "buy_operator": "<", "offset_ma_buy": 26, "ma_buy": 15, "offset_cl_sell": 26, "sell_operator": ">", "offset_ma_sell": 2, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": False, "offset_compare_short": 2, "ma_compare_short": 15, "offset_compare_long": 26, "ma_compare_long": 15, "stop_loss_pct": 0.0, "take_profit_pct": 10.0},
+    "ACE미30년국채": {"signal_ticker": "453850", "trade_ticker": "453850", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 10, "ma_buy": 60, "offset_cl_sell": 20, "sell_operator": ">", "offset_ma_sell": 50, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 5, "ma_compare_short": 120, "offset_compare_long": 1, "ma_compare_long": 10, "stop_loss_pct": 25.0, "take_profit_pct": 15.0},
     "465580 ACE미국빅테크TOP7PLUS": {"signal_ticker": "465580", "trade_ticker": "465580", "offset_cl_buy": 2, "buy_operator": ">", "offset_ma_buy": 2, "ma_buy": 5, "offset_cl_sell": 2, "sell_operator": "<", "offset_ma_sell": 2, "ma_sell": 25, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 6, "ma_compare_short": 10, "offset_compare_long": 2, "ma_compare_long": 10, "stop_loss_pct": 0.0, "take_profit_pct": 10.0},
     "390390 KODEX미국반도체": {"signal_ticker": "390390", "trade_ticker": "390390", "offset_cl_buy": 6, "buy_operator": "<", "offset_ma_buy": 2, "ma_buy": 5, "offset_cl_sell": 26, "sell_operator": ">", "offset_ma_sell": 2, "ma_sell": 20, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 6, "ma_compare_short": 25, "offset_compare_long": 2, "ma_compare_long": 25, "stop_loss_pct": 0.0, "take_profit_pct": 10.0},
-    "371460 TIGER차이나전기차SOLACTIVE": {"signal_ticker": "371460", "trade_ticker": "371460", "offset_cl_buy": 2, "buy_operator": ">", "offset_ma_buy": 6, "ma_buy": 10, "offset_cl_sell": 16, "sell_operator": ">", "offset_ma_sell": 2, "ma_sell": 5, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 6, "ma_compare_short": 15, "offset_compare_long": 16, "ma_compare_long": 10, "stop_loss_pct": 0.0, "take_profit_pct": 10.0},
     "483280 AITOP10커브드콜": {"signal_ticker": "483280", "trade_ticker": "483280", "offset_cl_buy": 26, "buy_operator": ">", "offset_ma_buy": 26, "ma_buy": 20, "offset_cl_sell": 26, "sell_operator": ">", "offset_ma_sell": 6, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 2, "ma_compare_short": 20, "offset_compare_long": 16, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
 }
 
@@ -249,7 +246,7 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
 # ==========================================
 # 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
 # ==========================================
-tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 계산기"])
+tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털"])
 
 with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
@@ -286,17 +283,131 @@ with tab1:
         else: st.error("데이터 로딩 실패")
 
 with tab2:
-    if st.button("📚 모든 프리셋 일괄 점검"):
+    st.markdown("### 📚 전략 일괄 진단 대시보드")
+    
+    # 백테스트 실행 여부 체크박스
+    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (체크 시 속도가 느려집니다)", value=True)
+    
+    if st.button("🚀 모든 프리셋 분석 시작", type="primary"):
         rows = []
-        with st.spinner("모든 전략을 시뮬레이션 중입니다..."):
-            for name, p in PRESETS.items():
-                t = p.get("signal_ticker", p.get("trade_ticker"))
-                res = summarize_signal_today(get_data(t, start_date, end_date), p)
+        progress_text = "전략 분석 중..."
+        my_bar = st.progress(0, text=progress_text)
+        
+        total_presets = len(PRESETS)
+        
+        for i, (name, p) in enumerate(PRESETS.items()):
+            # 진행률 표시
+            my_bar.progress(int((i / total_presets) * 100), text=f"분석 중: {name}")
+            
+            # 1. 기본 정보 추출
+            s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
+            t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
+            m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
+            
+            # 2. 데이터 준비
+            ma_pool = [
+                int(p.get("ma_buy", 50)), 
+                int(p.get("ma_sell", 10)),
+                int(p.get("ma_compare_short", 0) or 0),
+                int(p.get("ma_compare_long", 0) or 0)
+            ]
+            
+            # 데이터 로드
+            base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
+                s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
+                int(p.get("market_ma_period", 200))
+            )
+            
+            if base is not None and not base.empty:
+                # -----------------------------------------------------------
+                # A. 시그널 상태 확인 (여기서 '매수/매도 중복' 라벨을 가져옵니다)
+                # -----------------------------------------------------------
+                sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
+                
+                row_data = {
+                    "전략명": name,
+                    "티커": s_ticker,
+                    "현재상태": sig_res["label"], # <-- strategy.py에서 만든 라벨이 여기에 들어갑니다
+                    "최근매수": sig_res["last_buy"]
+                }
+
+                # B. 백테스트 실행 (체크박스가 켜져 있을 때만!)
+                if run_full_backtest:
+                    bt_res = backtest_fast(
+                        base, x_sig, x_trd, ma_dict,
+                        int(p.get("ma_buy", 50)), int(p.get("offset_ma_buy", 0)),
+                        int(p.get("ma_sell", 10)), int(p.get("offset_ma_sell", 0)),
+                        int(p.get("offset_cl_buy", 0)), int(p.get("offset_cl_sell", 0)),
+                        int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0),
+                        int(p.get("offset_compare_short", 0)), int(p.get("offset_compare_long", 0)),
+                        5000000, 
+                        float(p.get("stop_loss_pct", 0.0)), float(p.get("take_profit_pct", 0.0)),
+                        str(p.get("strategy_behavior", "1. 포지션 없으면 매수 / 보유 중이면 매도")),
+                        int(p.get("min_hold_days", 0)),
+                        float(p.get("fee_bps", 25)), float(p.get("slip_bps", 1)),
+                        bool(p.get("use_trend_in_buy", True)), bool(p.get("use_trend_in_sell", False)),
+                        str(p.get("buy_operator", ">")), str(p.get("sell_operator", "<")),
+                        use_rsi_filter=bool(p.get("use_rsi_filter", False)),
+                        rsi_period=int(p.get("rsi_period", 14)), rsi_min=30, rsi_max=int(p.get("rsi_max", 70)),
+                        use_market_filter=bool(p.get("use_market_filter", False)),
+                        x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
+                        use_bollinger=bool(p.get("use_bollinger", False)),
+                        bb_period=int(p.get("bb_period", 20)), bb_std=float(p.get("bb_std", 2.0)),
+                        bb_entry_type=str(p.get("bb_entry_type", "")), bb_exit_type=str(p.get("bb_exit_type", "")),
+                        use_atr_stop=bool(p.get("use_atr_stop", False)),
+                        atr_multiplier=float(p.get("atr_multiplier", 2.0))
+                    )
+                    # 결과 추가
+                    row_data.update({
+                        "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
+                        "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
+                        "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
+                        "Profit Factor": bt_res.get('Profit Factor', 0),
+                        "매매횟수": bt_res.get('총 매매 횟수', 0)
+                    })
+                else:
+                    # 백테스트 안 할 때는 빈칸(-) 처리
+                    row_data.update({
+                        "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"
+                    })
+                
+                rows.append(row_data)
+            else:
                 rows.append({
-                    "전략": name, "티커": t, "시그널": res["label"], 
-                    "최근 BUY": res["last_buy"], "최근 SELL": res["last_sell"], "최근 HOLD": res["last_hold"]
+                    "전략명": name, "티커": s_ticker, "현재상태": "데이터오류",
+                    "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"
                 })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+        my_bar.empty()
+        
+        if rows:
+            df_result = pd.DataFrame(rows)
+            
+            # 정렬 로직 (백테스트 결과가 있을 때만 수익률 순 정렬)
+            if run_full_backtest:
+                try:
+                    df_result["sort_key"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
+                    df_result = df_result.sort_values("sort_key", ascending=False).drop(columns=["sort_key"])
+                except: pass
+            
+            st.success("✅ 분석 완료!")
+            
+            # 컬럼 설정
+            cols_config = {
+                "전략명": st.column_config.TextColumn("전략 이름"),
+                "현재상태": st.column_config.TextColumn("시그널", help="⚠️ 표시가 뜨면 매수/매도 조건이 겹친 것입니다."),
+                "최근매수": st.column_config.TextColumn("최근 매수일")
+            }
+            
+            if run_full_backtest:
+                cols_config.update({
+                    "총 수익률(%)": st.column_config.TextColumn("수익률"),
+                    "MDD(%)": st.column_config.TextColumn("MDD"),
+                })
+
+            st.dataframe(df_result, use_container_width=True, column_config=cols_config, hide_index=True)
+        else:
+            st.warning("분석할 프리셋이 없습니다.")
 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
@@ -624,5 +735,223 @@ with tab5:
             else:
                 st.error("데이터를 불러올 수 없습니다.")
 
+# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
+with tab6:
+    st.markdown("### 📊 펀더멘털 & EPS 추세 분석")
+    st.caption("주가(Price) 흐름과 기업의 **EPS(주당순이익)** 추이를 함께 비교합니다.")
 
+    col_f1, col_f2 = st.columns([1, 3])
+    
+    with col_f1:
+        default_ticker = st.session_state.get("signal_ticker", "NVDA")
+        f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
+        f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
+        
+        korea_period = "분기(Quarter)"
+        if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
+            korea_period = st.radio("🇰🇷 실적 기준 선택", ["연간(Annual)", "분기(Quarter)"])
+        
+        st.info("""
+        **차트 보는 법:**
+        - **⚫ 회색선 (Left):** 주가 (Price)
+        - **🔵 파란선 (Right):** EPS (주당순이익)
+        
+        ※ EPS를 찾지 못할 경우 '순이익'으로 대체되며 제목에 표시됩니다.
+        """)
 
+    with col_f2:
+        if st.button("📉 데이터 가져오기", type="primary"):
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+            import yfinance as yf
+            import requests
+            import datetime
+
+            # -----------------------------------------------------------
+            # 🇰🇷 한국 주식 로직 (네이버 금융 + EPS Line Chart)
+            # -----------------------------------------------------------
+            if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
+                st.subheader(f"🇰🇷 {f_ticker} 주가 vs EPS ({korea_period})")
+                code = f_ticker.split('.')[0]
+                url = f"https://finance.naver.com/item/main.naver?code={code}"
+                
+                try:
+                    # 1. 재무 데이터 크롤링
+                    headers = {'User-Agent': 'Mozilla/5.0'}
+                    response = requests.get(url, headers=headers)
+                    response.raise_for_status()
+                    dfs = pd.read_html(response.text, encoding='euc-kr')
+                    
+                    df_fin = None
+                    for df in dfs:
+                        # 매출액이나 영업이익이 있는 표 찾기
+                        if df.shape[1] > 3 and df.iloc[:, 0].astype(str).str.contains("매출액|영업이익").any():
+                            df_fin = df
+                            break
+                    
+                    if df_fin is not None:
+                        # 컬럼 중복 처리
+                        raw_cols = [c[1] for c in df_fin.columns]
+                        new_cols = []
+                        counts = {}
+                        for col in raw_cols:
+                            if col in counts: counts[col] += 1; new_cols.append(f"{col}.{counts[col]}")
+                            else: counts[col] = 0; new_cols.append(col)
+                        df_fin.columns = new_cols
+                        df_fin.set_index(df_fin.columns[0], inplace=True)
+
+                        # 2. 데이터 분류 (연간 vs 분기)
+                        target_cols = []
+                        if "연간" in korea_period:
+                            target_cols = [c for c in df_fin.columns[:4]] 
+                        else:
+                            target_cols = [c for c in df_fin.columns[4:]]
+
+                        # [핵심 수정] EPS 우선 검색 로직
+                        # 네이버 금융에서 EPS 표기법들을 순차적으로 찾습니다.
+                        candidates = ["EPS(원)", "지배주주EPS(원)", "EPS"] 
+                        row_name = None
+                        is_eps = False
+                        
+                        for cand in candidates:
+                            # 부분 일치 검색
+                            matches = df_fin.index[df_fin.index.str.contains(cand, na=False)]
+                            if len(matches) > 0:
+                                row_name = matches[0] # 첫 번째 매칭된 행 이름 사용
+                                is_eps = True
+                                break
+                        
+                        # EPS가 정 없으면 당기순이익으로 대체 (그래프라도 보여주기 위함)
+                        if row_name is None:
+                            row_name = "당기순이익"
+                            if df_fin.index.str.contains(row_name).any():
+                                st.warning(f"⚠️ 'EPS' 데이터를 찾을 수 없어 '{row_name}'으로 대체합니다.")
+                            else:
+                                st.error("재무 데이터에서 실적 항목을 찾을 수 없습니다.")
+                                st.stop()
+
+                        # 데이터 추출
+                        eps_row = df_fin.loc[row_name][target_cols]
+                        
+                        # 데이터 정제
+                        dates = []
+                        values = []
+                        
+                        for col, val in eps_row.items():
+                            try:
+                                clean_date_str = col.split('(')[0].strip().replace('(E)', '')
+                                dt = datetime.datetime.strptime(clean_date_str, "%Y.%m")
+                                dt = dt.replace(day=15)
+                                
+                                clean_val = float(str(val).replace(',', '').strip())
+                                
+                                dates.append(dt)
+                                values.append(clean_val)
+                            except: pass
+                        
+                        # 3. 차트 그리기
+                        if dates:
+                            start_d_price = min(dates) - datetime.timedelta(days=90)
+                            end_d_price = datetime.date.today()
+                            df_price = get_data(f_ticker, start_d_price, end_d_price)
+
+                            fig, ax1 = plt.subplots(figsize=(10, 5))
+
+                            # 축 1: 주가 (회색)
+                            ax1.set_xlabel('Date')
+                            ax1.set_ylabel('Price (KRW)', color='gray')
+                            ax1.plot(df_price['Date'], df_price['Close'], color='gray', alpha=0.5, linewidth=1.5, label='Stock Price', zorder=1)
+                            ax1.tick_params(axis='y', labelcolor='gray')
+
+                            # 축 2: 실적 (EPS면 파란색, 순이익이면 빨간색)
+                            ax2 = ax1.twinx()
+                            
+                            color = 'blue' if is_eps else 'crimson'
+                            label_name = f"EPS (Won)" if is_eps else f"{row_name} (Net Income)"
+                            
+                            ax2.set_ylabel(label_name, color=color)
+                            ax2.plot(dates, values, color=color, marker='o', linestyle='-', linewidth=2, markersize=6, label=label_name, zorder=2)
+                            
+                            for d, v in zip(dates, values):
+                                ax2.text(d, v, f"{v:,.0f}", ha='center', va='bottom', fontsize=9, color=color, fontweight='bold')
+
+                            ax2.tick_params(axis='y', labelcolor=color)
+                            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                            
+                            plt.title(f"{f_ticker} Price vs {label_name}", fontsize=15)
+                            ax1.grid(True, alpha=0.3)
+                            
+                            lines1, labels1 = ax1.get_legend_handles_labels()
+                            lines2, labels2 = ax2.get_legend_handles_labels()
+                            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+
+                            st.pyplot(fig)
+                            
+                            st.write(f"#### 📋 상세 재무제표 ({row_name})")
+                            st.dataframe(df_fin.loc[[row_name]][target_cols], use_container_width=True)
+                            
+                            if any("(E)" in c for c in target_cols):
+                                st.caption("※ (E)는 컨센서스(예상치) 입니다.")
+                                
+                        else:
+                            st.warning("유효한 날짜 데이터를 찾을 수 없습니다.")
+
+                    else:
+                        st.warning("재무제표 데이터를 찾을 수 없습니다.")
+
+                except Exception as e:
+                    st.error(f"분석 실패: {e}")
+
+            # -----------------------------------------------------------
+            # 🇺🇸 미국 주식 로직 (기존 유지)
+            # -----------------------------------------------------------
+            else:
+                st.subheader(f"🇺🇸 {f_ticker} Earnings Surprise (Est vs Actual)")
+                with st.spinner("미국 주식 데이터 분석 중..."):
+                    try:
+                        end_d = datetime.date.today()
+                        start_d = end_d - datetime.timedelta(days=365 * f_years)
+                        df_price = get_data(f_ticker, start_d, end_d)
+                        
+                        tick = yf.Ticker(f_ticker)
+                        df_eps = tick.get_earnings_dates()
+                        
+                        if df_eps is not None and not df_eps.empty:
+                            df_eps = df_eps.sort_index()
+                            if df_eps.index.tz is not None: df_eps.index = df_eps.index.tz_localize(None)
+                            df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
+                            
+                            if df_eps.empty:
+                                st.warning("조회 기간 내 EPS 데이터가 없습니다.")
+                            else:
+                                fig, ax1 = plt.subplots(figsize=(10, 5))
+                                ax1.set_xlabel('Date')
+                                ax1.set_ylabel('Price ($)', color='black')
+                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.2, label='Price')
+                                
+                                ax2 = ax1.twinx()
+                                ax2.set_ylabel('EPS ($)', color='blue')
+                                if 'EPS Estimate' in df_eps.columns:
+                                    ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='--', alpha=0.6, label='Estimate')
+                                if 'Reported EPS' in df_eps.columns:
+                                    actual_data = df_eps.dropna(subset=['Reported EPS'])
+                                    ax2.plot(actual_data.index, actual_data['Reported EPS'], color='green', marker='D', linestyle='-', markersize=8, label='Actual')
+
+                                ax2.tick_params(axis='y', labelcolor='green')
+                                plt.title(f"{f_ticker} Price vs Earnings Surprise")
+                                ax1.grid(True, alpha=0.3)
+                                lines1, labels1 = ax1.get_legend_handles_labels()
+                                lines2, labels2 = ax2.get_legend_handles_labels()
+                                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+                                st.pyplot(fig)
+                                
+                                if 'Reported EPS' in df_eps.columns:
+                                    last_row = df_eps.dropna(subset=['Reported EPS']).iloc[-1]
+                                    est, act = last_row['EPS Estimate'], last_row['Reported EPS']
+                                    if pd.notna(est) and pd.notna(act):
+                                        surprise = act - est
+                                        st.markdown(f"#### 📢 최근 실적: 예상 ${est:.2f} vs 실제 ${act:.2f} ({'Beat' if surprise>0 else 'Miss'})")
+                        else:
+                            st.warning("EPS 추정치 데이터가 없습니다.")
+                    except Exception as e:
+                        st.error(f"오류 발생: {e}")
