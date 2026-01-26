@@ -57,32 +57,51 @@ def get_data(ticker, start_date, end_date):
         except:
             return pd.DataFrame()
 
-# --- 2. 기업 기본 정보 가져오기 (키값 대문자 수정) ---
+# --- 2. 기업 기본 정보 가져오기 (Beta 추가 및 대문자 Key 통일) ---
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_fundamental_info(ticker):
     """
-    KeyError 방지를 위해 Key 값을 대문자(Name, Sector 등)로 통일했습니다.
+    Beta, PER, PBR 등 main.py에서 사용하는 모든 Key를 대문자로 리턴합니다.
     """
+    # 기본값 설정 (에러 방지용)
+    default_info = {
+        "Name": ticker, 
+        "Symbol": ticker, 
+        "Sector": "N/A", 
+        "Industry": "N/A", 
+        "MarketCap": 0, 
+        "Beta": 0.0,            # [중요] Beta 기본값 추가
+        "ForwardPE": 0.0,
+        "TrailingPE": 0.0,
+        "DividendYield": 0.0,
+        "Summary": "정보를 불러올 수 없습니다.", 
+        "Website": ""
+    }
+
     try:
         t = yf.Ticker(ticker)
         info = t.info
         
-        # [수정됨] main.py가 찾는 Key 이름(대문자)으로 맞춤
+        # yfinance info가 비어있을 경우 대비
+        if not info:
+            return default_info
+
         return {
-            "Name": info.get("longName", ticker),       # "name" -> "Name"
-            "Symbol": info.get("symbol", ticker),       # "symbol" -> "Symbol"
-            "Sector": info.get("sector", "N/A"),        # "sector" -> "Sector"
-            "Industry": info.get("industry", "N/A"),    # "industry" -> "Industry"
-            "MarketCap": info.get("marketCap", 0),      # "marketCap" -> "MarketCap"
-            "Summary": info.get("longBusinessSummary", "정보 없음"), # "summary" -> "Summary"
+            "Name": info.get("longName", ticker),
+            "Symbol": info.get("symbol", ticker),
+            "Sector": info.get("sector", "N/A"),
+            "Industry": info.get("industry", "N/A"),
+            "MarketCap": info.get("marketCap", 0),
+            
+            # [수정] Beta 추가! (없는 경우 0.0)
+            "Beta": info.get("beta", 0.0),
+            
+            "ForwardPE": info.get("forwardPE", 0.0),
+            "TrailingPE": info.get("trailingPE", 0.0),
+            "DividendYield": info.get("dividendYield", 0.0),
+            "Summary": info.get("longBusinessSummary", "정보 없음"),
             "Website": info.get("website", ""),
-            "ForwardPE": info.get("forwardPE", 0),
-            "TrailingPE": info.get("trailingPE", 0),
-            "DividendYield": info.get("dividendYield", 0),
         }
     except Exception as e:
-        # 에러 발생 시 빈 딕셔너리라도 리턴해서 멈추지 않게 함
-        return {
-            "Name": ticker, "Symbol": ticker, "Sector": "-", "Industry": "-", 
-            "MarketCap": 0, "Summary": "정보를 불러올 수 없습니다.", "Website": ""
-        }
+        # 에러 발생 시에도 멈추지 않도록 기본값 리턴
+        return default_info
