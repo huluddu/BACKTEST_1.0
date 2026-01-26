@@ -1,53 +1,53 @@
 import yfinance as yf
-import FinanceDataReader as fdr
 import pandas as pd
+from pykrx import stock  # 국장 전용 구원투수
 import streamlit as st
+from datetime import datetime
 
 def get_data(ticker, start_date, end_date):
     ticker = ticker.upper()
     df = pd.DataFrame()
 
+    # 날짜 형식 변환 (pykrx는 YYYYMMDD 형식을 좋아합니다)
+    s_date = pd.to_datetime(start_date).strftime('%Y%m%d')
+    e_date = pd.to_datetime(end_date).strftime('%Y%m%d')
+
     try:
-        # 1. 국장 지수 및 특정 티커는 FDR 우선
-        fdr_priority = ["VKOSPI", "KS11", "KQ11", "USD/KRW", "VIX", "RVX"]
-        
-        if ticker in fdr_priority:
-            df = fdr.DataReader(ticker, start_date, end_date)
+        # 1. VKOSPI 전용 로직 (pykrx 사용)
+        if ticker == "VKOSPI":
+            # 1021은 코스피 200 변동성지수(VKOSPI)의 고유 코드입니다.
+            df = stock.get_index_ohlcv_by_date(s_date, e_date, "1021")
+            
+        # 2. 기타 국장 지수 (KOSPI 등) 필요 시
+        elif ticker in ["KS11", "KOSPI"]:
+            df = stock.get_index_ohlcv_by_date(s_date, e_date, "1001")
+
+        # 3. 그 외 모든 미장 티커 (TQQQ, VIX, SPY 등)
         else:
-            # 2. 그 외(미장 등)는 yfinance 시도
-            # 최근 yfinance는 '^' 유무에 예민하므로 지수는 붙여줌
             yf_ticker = ticker
-            if ticker in ["GSPC", "IXIC", "DJI", "N225"]:
-                yf_ticker = f"^{ticker}"
+            if ticker == "VIX": yf_ticker = "^VIX"
+            if ticker == "GSPC": yf_ticker = "^GSPC"
             
             df = yf.download(yf_ticker, start=start_date, end=end_date, progress=False)
 
-        # 3. yfinance 실패 시 FDR로 최종 백업
-        if df.empty:
-            df = fdr.DataReader(ticker, start_date, end_date)
-
     except Exception as e:
-        st.error(f"데이터 로드 중 치명적 에러 ({ticker}): {e}")
+        st.error(f"데이터 로딩 실패 ({ticker}): {e}")
         return pd.DataFrame()
 
-    # --- 여기서부터 KeyError: 'Date'를 잡는 핵심 로직 ---
-    
+    # --- 에러 방지용 데이터 후처리 ---
     if df.empty:
+        st.warning(f"[{ticker}] 데이터가 비어 있습니다. 기간을 확인하세요.")
         return pd.DataFrame()
 
-    # A. yfinance 멀티 인덱스 컬럼 해결 (최근 업데이트 이슈)
+    # yfinance 멀티인덱스 해제
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # B. 인덱스(날짜)를 컬럼으로 빼내기
+    # 인덱스(날짜)를 컬럼으로 빼내고 이름을 'Date'로 통일
     df = df.reset_index()
-
-    # C. 날짜 컬럼 이름을 무조건 'Date'로 강제 통일
-    # 'index', 'Date', 'datetime', 'Date' 등 어떤 이름으로 오든 첫 번째 컬럼을 Date로 간주
-    first_col = df.columns[0]
-    df.rename(columns={first_col: 'Date'}, inplace=True)
-
-    # D. 'Date' 컬럼을 실제 datetime 형식으로 변환 (정렬 및 계산용)
+    df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
+    
+    # Date 컬럼을 확실하게 datetime 객체로 변환
     df['Date'] = pd.to_datetime(df['Date'])
     
     return df
