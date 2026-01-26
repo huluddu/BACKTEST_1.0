@@ -5,23 +5,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import random
 import google.generativeai as genai
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import requests
-
-# 외부 라이브러리 (Tab 6 및 데이터 로딩용)
-import FinanceDataReader as fdr
-import yfinance as yf
 
 # 모듈 불러오기
-try:
-    from modules.utils import load_saved_strategies, save_strategy_to_file, delete_strategy_from_file, parse_choices
-    from modules.data_loader import get_data, get_fundamental_info
-    from modules.strategy import prepare_base, check_signal_today, backtest_fast, summarize_signal_today, auto_search_train_test, apply_opt_params
-    from modules.llm_advisor import ask_gemini_analysis, ask_gemini_chat, ask_gemini_comprehensive_analysis
-except ImportError as e:
-    st.error(f"모듈 임포트 오류: {e}")
-    st.stop()
+from modules.utils import load_saved_strategies, save_strategy_to_file, delete_strategy_from_file, parse_choices
+from modules.data_loader import get_data, get_fundamental_info
+from modules.strategy import prepare_base, check_signal_today, backtest_fast, summarize_signal_today, auto_search_train_test, apply_opt_params
+from modules.llm_advisor import ask_gemini_analysis, ask_gemini_chat, ask_gemini_comprehensive_analysis
 
 st.set_page_config(page_title="QuantLab: Modular Ver.", page_icon="⚡", layout="wide")
 
@@ -42,6 +31,7 @@ def _init_default_state():
         "use_market_filter": False, "market_ma_period": 200,
         "use_bollinger": False, "bb_period": 20, "bb_std": 2.0,
         "bb_entry_type": "상단선 돌파 (추세)", "bb_exit_type": "중심선(MA) 이탈",
+        # [ATR 기능 초기값 추가]
         "use_atr_stop": False, "atr_multiplier": 2.0
     }
     for k, v in defaults.items():
@@ -50,7 +40,7 @@ def _init_default_state():
 _init_default_state()
 
 # ---------------------------------------------------------
-# 프리셋 데이터
+# [복구 완료] 사용자님의 원본 프리셋 데이터 전체
 # ---------------------------------------------------------
 DEFAULT_PRESETS = {
     "SOXL 안전 전략": {"signal_ticker": "SOXL", "trade_ticker": "SOXL", "offset_cl_buy": 10, "buy_operator": "<", "offset_ma_buy": 10, "ma_buy": 60, "offset_cl_sell": 50, "sell_operator": ">", "offset_ma_sell": 10, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 20, "ma_compare_short": 10, "offset_compare_long": 50, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
@@ -70,6 +60,7 @@ DEFAULT_PRESETS = {
     "483280 AITOP10커브드콜": {"signal_ticker": "483280", "trade_ticker": "483280", "offset_cl_buy": 26, "buy_operator": ">", "offset_ma_buy": 26, "ma_buy": 20, "offset_cl_sell": 26, "sell_operator": ">", "offset_ma_sell": 6, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 2, "ma_compare_short": 20, "offset_compare_long": 16, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
 }
 
+# 로컬 파일(구글 시트 등)에 저장된 전략이 있다면 합치기
 try:
     saved_strategies = load_saved_strategies()
     if saved_strategies:
@@ -101,6 +92,7 @@ def _on_preset_change():
 with st.sidebar:
     st.header("⚙️ 설정 & Gemini")
     
+    # API 키 입력
     api_key_input = st.text_input("Gemini API Key", type="password", key="gemini_key_input")
     if api_key_input: 
         st.session_state["gemini_api_key"] = api_key_input
@@ -132,6 +124,7 @@ with st.sidebar:
                         "use_market_filter", "market_ma_period",
                         "use_bollinger", "bb_period", "bb_std", "bb_entry_type", "bb_exit_type",
                         "use_rsi_filter", "rsi_period", "rsi_max",
+                        # [추가됨] ATR 설정 저장
                         "use_atr_stop", "atr_multiplier"
                     ]
                     params = {k: st.session_state.get(k) for k in keys_to_save}
@@ -157,7 +150,7 @@ with st.sidebar:
     )
 
 # ==========================================
-# 3. 메인 파라미터 입력창
+# 3. 메인 파라미터 입력창 (상단)
 # ==========================================
 col1, col2, col3 = st.columns(3)
 signal_ticker = col1.text_input("시그널 티커", key="signal_ticker_input")
@@ -187,6 +180,8 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
             offset_cl_sell = st.number_input("매도 종가 Offset", key="offset_cl_sell", step=1)
             sell_operator = st.selectbox("매도 부호", ["<", ">", "OFF"], key="sell_operator")
             use_trend_in_sell = st.checkbox("매도 역추세 필터", key="use_trend_in_sell")
+
+
         
         st.divider()
         c3, c4 = st.columns(2)
@@ -221,11 +216,12 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
         c5, c6 = st.columns(2)
         with c5:
             st.markdown("#### 🛡️ 리스크")
+            # [추가됨] ATR 손절 UI 적용
             use_atr_stop = st.checkbox("ATR(변동성) 손절 사용", key="use_atr_stop")
             if use_atr_stop:
                 atr_multiplier = st.number_input("ATR 배수 (보통 2~3)", value=2.0, step=0.1, key="atr_multiplier")
                 st.caption(f"📉 진입가 - (ATR x {atr_multiplier}) 가격에 도달하면 손절합니다.")
-                stop_loss_pct = 0.0
+                stop_loss_pct = 0.0 # ATR 사용시 % 손절은 0으로 처리하거나 무시
             else:
                 stop_loss_pct = st.number_input("고정 손절 (%)", step=0.5, key="stop_loss_pct")
                 
@@ -248,7 +244,7 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
             rsi_max = c_r2.number_input("RSI 과매수 기준", 70, key="rsi_max")
 
 # ==========================================
-# 4. 기능 탭
+# 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
 # ==========================================
 tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털"])
 
@@ -256,24 +252,20 @@ with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
     if trade_ticker:
         fd = get_fundamental_info(trade_ticker)
-        # [수정] .get() 사용으로 에러 방지
-        if fd:
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("기업명", fd.get("Name", trade_ticker))
-            c2.metric("섹터", fd.get("Sector", "N/A"))
-            c3.metric("시가총액", f"{fd.get('MarketCap', 0):,}")
-            c4.metric("Beta (변동성)", f"{fd.get('Beta', 0.0):.2f}")
-            
-            st.divider()
-            c5, c6, c7, c8 = st.columns(4)
-            c5.metric("PER", f"{fd.get('PER', 0):.2f}" if fd.get('PER') else "N/A")
-            c6.metric("PBR", f"{fd.get('PBR', 0):.2f}" if fd.get('PBR') else "N/A")
-            c7.metric("ROE", f"{fd.get('ROE', 0)*100:.2f}%" if fd.get('ROE') else "N/A")
-            c8.metric("당기순이익", f"{fd.get('NetIncome', 0):,}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("기업명", fd["Name"])
+        c2.metric("섹터", fd["Sector"])
+        c3.metric("시가총액", f"{fd['MarketCap']:,}")
+        c4.metric("Beta (변동성)", f"{fd['Beta']:.2f}")
+        
+        st.divider()
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("PER (주가수익비율)", f"{fd['PER']:.2f}" if fd['PER'] else "N/A")
+        c6.metric("PBR (주가순자산비율)", f"{fd['PBR']:.2f}" if fd['PBR'] else "N/A")
+        c7.metric("ROE (자기자본이익률)", f"{fd['ROE'] * 100:.2f}%" if fd['ROE'] else "N/A")
+        c8.metric("당기순이익", f"{fd['NetIncome']:,}")
 
-            st.info(f"ℹ️ **기업 개요**: {fd.get('Description', '정보 없음')}")
-        else:
-            st.warning("기업 정보를 불러올 수 없습니다.")
+        st.info(f"ℹ️ **기업 개요**: {fd['Description']}")
     else:
         st.warning("티커를 입력해주세요.")
 
@@ -292,21 +284,27 @@ with tab1:
 
 with tab2:
     st.markdown("### 📚 전략 일괄 진단 대시보드")
+    
+    # 백테스트 실행 여부 체크박스
     run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (체크 시 속도가 느려집니다)", value=True)
     
     if st.button("🚀 모든 프리셋 분석 시작", type="primary"):
         rows = []
         progress_text = "전략 분석 중..."
         my_bar = st.progress(0, text=progress_text)
+        
         total_presets = len(PRESETS)
         
         for i, (name, p) in enumerate(PRESETS.items()):
+            # 진행률 표시
             my_bar.progress(int((i / total_presets) * 100), text=f"분석 중: {name}")
             
+            # 1. 기본 정보 추출
             s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
             t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
             m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
             
+            # 2. 데이터 준비
             ma_pool = [
                 int(p.get("ma_buy", 50)), 
                 int(p.get("ma_sell", 10)),
@@ -314,20 +312,26 @@ with tab2:
                 int(p.get("ma_compare_long", 0) or 0)
             ]
             
+            # 데이터 로드
             base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
                 s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
                 int(p.get("market_ma_period", 200))
             )
             
             if base is not None and not base.empty:
+                # -----------------------------------------------------------
+                # A. 시그널 상태 확인 (여기서 '매수/매도 중복' 라벨을 가져옵니다)
+                # -----------------------------------------------------------
                 sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
+                
                 row_data = {
                     "전략명": name,
                     "티커": s_ticker,
-                    "현재상태": sig_res["label"],
+                    "현재상태": sig_res["label"], # <-- strategy.py에서 만든 라벨이 여기에 들어갑니다
                     "최근매수": sig_res["last_buy"]
                 }
 
+                # B. 백테스트 실행 (체크박스가 켜져 있을 때만!)
                 if run_full_backtest:
                     bt_res = backtest_fast(
                         base, x_sig, x_trd, ma_dict,
@@ -353,6 +357,7 @@ with tab2:
                         use_atr_stop=bool(p.get("use_atr_stop", False)),
                         atr_multiplier=float(p.get("atr_multiplier", 2.0))
                     )
+                    # 결과 추가
                     row_data.update({
                         "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
                         "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
@@ -361,15 +366,24 @@ with tab2:
                         "매매횟수": bt_res.get('총 매매 횟수', 0)
                     })
                 else:
-                    row_data.update({"총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"})
+                    # 백테스트 안 할 때는 빈칸(-) 처리
+                    row_data.update({
+                        "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"
+                    })
+                
                 rows.append(row_data)
             else:
-                rows.append({"전략명": name, "티커": s_ticker, "현재상태": "데이터오류", "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"})
+                rows.append({
+                    "전략명": name, "티커": s_ticker, "현재상태": "데이터오류",
+                    "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"
+                })
 
         my_bar.empty()
         
         if rows:
             df_result = pd.DataFrame(rows)
+            
+            # 정렬 로직 (백테스트 결과가 있을 때만 수익률 순 정렬)
             if run_full_backtest:
                 try:
                     df_result["sort_key"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
@@ -377,13 +391,19 @@ with tab2:
                 except: pass
             
             st.success("✅ 분석 완료!")
+            
+            # 컬럼 설정
             cols_config = {
                 "전략명": st.column_config.TextColumn("전략 이름"),
                 "현재상태": st.column_config.TextColumn("시그널", help="⚠️ 표시가 뜨면 매수/매도 조건이 겹친 것입니다."),
                 "최근매수": st.column_config.TextColumn("최근 매수일")
             }
+            
             if run_full_backtest:
-                cols_config.update({"총 수익률(%)": st.column_config.TextColumn("수익률"), "MDD(%)": st.column_config.TextColumn("MDD")})
+                cols_config.update({
+                    "총 수익률(%)": st.column_config.TextColumn("수익률"),
+                    "MDD(%)": st.column_config.TextColumn("MDD"),
+                })
 
             st.dataframe(df_result, use_container_width=True, column_config=cols_config, hide_index=True)
         else:
@@ -391,17 +411,28 @@ with tab2:
 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
-        ma_pool = [int(st.session_state.ma_buy), int(st.session_state.ma_sell), int(st.session_state.ma_compare_short), int(st.session_state.ma_compare_long)]
+        p_ma_buy = int(st.session_state.ma_buy)
+        p_ma_sell = int(st.session_state.ma_sell)
+        p_ma_compare_short = int(st.session_state.ma_compare_short) if st.session_state.ma_compare_short else 0
+        p_ma_compare_long = int(st.session_state.ma_compare_long) if st.session_state.ma_compare_long else 0
+        
+        ma_pool = [p_ma_buy, p_ma_sell, p_ma_compare_short, p_ma_compare_long]
         base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool, st.session_state.market_ma_period)
         
         if base is not None:
             with st.spinner("과거 데이터를 한 땀 한 땀 분석 중..."):
-                res = backtest_fast(base, x_sig, x_trd, ma_dict, st.session_state.ma_buy, st.session_state.offset_ma_buy, st.session_state.ma_sell, st.session_state.offset_ma_sell, st.session_state.offset_cl_buy, st.session_state.offset_cl_sell, st.session_state.ma_compare_short, st.session_state.ma_compare_long, st.session_state.offset_compare_short, st.session_state.offset_compare_long, 5000000, st.session_state.stop_loss_pct, st.session_state.take_profit_pct, st.session_state.strategy_behavior, st.session_state.min_hold_days, st.session_state.fee_bps, st.session_state.slip_bps, st.session_state.use_trend_in_buy, st.session_state.use_trend_in_sell, st.session_state.buy_operator, st.session_state.sell_operator, 
-                                use_rsi_filter=st.session_state.use_rsi_filter, rsi_period=st.session_state.rsi_period, rsi_min=30, rsi_max=st.session_state.rsi_max,
+                p_use_rsi = st.session_state.get("use_rsi_filter", False)
+                p_rsi_period = st.session_state.get("rsi_period", 14)
+                p_rsi_max = st.session_state.get("rsi_max", 70)
+
+                res = backtest_fast(base, x_sig, x_trd, ma_dict, p_ma_buy, st.session_state.offset_ma_buy, p_ma_sell, st.session_state.offset_ma_sell, st.session_state.offset_cl_buy, st.session_state.offset_cl_sell, p_ma_compare_short, p_ma_compare_long, st.session_state.offset_compare_short, st.session_state.offset_compare_long, 5000000, st.session_state.stop_loss_pct, st.session_state.take_profit_pct, st.session_state.strategy_behavior, st.session_state.min_hold_days, st.session_state.fee_bps, st.session_state.slip_bps, st.session_state.use_trend_in_buy, st.session_state.use_trend_in_sell, st.session_state.buy_operator, st.session_state.sell_operator, 
+                                use_rsi_filter=p_use_rsi, rsi_period=p_rsi_period, rsi_min=30, rsi_max=p_rsi_max,
                                 use_market_filter=st.session_state.use_market_filter, x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
                                 use_bollinger=st.session_state.use_bollinger, bb_period=st.session_state.bb_period, bb_std=st.session_state.bb_std, 
                                 bb_entry_type=st.session_state.bb_entry_type, bb_exit_type=st.session_state.bb_exit_type,
-                                use_atr_stop=st.session_state.get("use_atr_stop", False), atr_multiplier=st.session_state.get("atr_multiplier", 2.0))
+                                # [추가됨] ATR 파라미터 전달
+                                use_atr_stop=st.session_state.get("use_atr_stop", False),
+                                atr_multiplier=st.session_state.get("atr_multiplier", 2.0))
             st.session_state["bt_result"] = res
             if "ai_analysis" in st.session_state: del st.session_state["ai_analysis"]
             st.rerun()
@@ -425,6 +456,7 @@ with tab3:
                 chart_data = res.get("차트데이터", {})
                 base_df = chart_data.get("base")
                 
+                # 차트 그리기
                 fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.5, 0.25, 0.25], 
                                     subplot_titles=("주가 & 매매타점 (Candle + MA)", "내 자산 vs 보유 전략 (Equity)", "MDD (%)"))
 
@@ -466,7 +498,7 @@ with tab3:
                 st.plotly_chart(fig_heat, use_container_width=True)
 
                 st.divider()
-                st.markdown("### 🤖 제미니 퀀트 컨설턴트")
+                st.markdown("### 🤖 제미니 퀀트 컨설턴트 (1:1 대화)")
                 chat_container = st.container(height=300)
                 for msg in st.session_state["chat_history"]:
                     with chat_container.chat_message(msg["role"]): st.write(msg["content"])
@@ -475,7 +507,7 @@ with tab3:
                     st.session_state["chat_history"].append({"role": "user", "content": prompt})
                     with chat_container.chat_message("user"): st.write(prompt)
                     with chat_container.chat_message("assistant"):
-                        current_p = f"매수:{st.session_state.ma_buy}MA, 매도:{st.session_state.ma_sell}MA, 손절:{st.session_state.stop_loss_pct}%"
+                        current_p = f"매수:{ma_buy}MA, 매도:{ma_sell}MA, 손절:{stop_loss_pct}%"
                         response = ask_gemini_chat(prompt, res, current_p, trade_ticker, st.session_state["gemini_api_key"], st.session_state.get("selected_model_name"))
                         st.write(response)
                         st.session_state["chat_history"].append({"role": "assistant", "content": response})
@@ -485,11 +517,12 @@ with tab3:
                 st.download_button(label="📥 매매 로그 다운로드 (CSV)", data=csv, file_name=f'backtest_log_{trade_ticker}_{datetime.date.today()}.csv', mime='text/csv')
 
                 st.divider()
+                st.markdown("### 🤖 Gemini AI 전략 컨설팅")
                 if st.button("✨ AI에게 분석 및 개선점 물어보기", type="primary"):
                     fd = get_fundamental_info(trade_ticker)
-                    sl_txt = f"{st.session_state.stop_loss_pct}%" if st.session_state.stop_loss_pct > 0 else "미설정"
-                    tp_txt = f"{st.session_state.take_profit_pct}%" if st.session_state.take_profit_pct > 0 else "미설정"
-                    current_params = f"매수: {st.session_state.ma_buy}일 이평, 매도: {st.session_state.ma_sell}일 이평, 손절: {sl_txt}, 익절: {tp_txt}"
+                    sl_txt = f"{stop_loss_pct}%" if stop_loss_pct > 0 else "미설정"
+                    tp_txt = f"{take_profit_pct}%" if take_profit_pct > 0 else "미설정"
+                    current_params = f"매수: {ma_buy}일 이평, 매도: {ma_sell}일 이평, 손절: {sl_txt}, 익절: {tp_txt}"
                     anl = ask_gemini_comprehensive_analysis(res, fd, current_params, trade_ticker, st.session_state.get("gemini_api_key"), st.session_state.get("selected_model_name", "gemini-1.5-flash"))
                     st.session_state["ai_analysis"] = anl       
                 
@@ -509,12 +542,15 @@ with tab4:
         c1, c2 = st.columns(2)
         sort_metric = c1.selectbox("정렬 기준", ["Full_수익률(%)", "Test_수익률(%)", "Full_MDD(%)", "Full_승률(%)"])
         top_n = c2.slider("표시할 상위 개수", 1, 50, 10)
+        
         c3, c4 = st.columns(2)
         min_trades = c3.number_input("최소 매매 횟수", 0, 100, 5)
         min_win = c4.number_input("최소 승률 (%)", 0.0, 100.0, 50.0)
+        
         c5, c6 = st.columns(2)
         min_train_ret = c5.number_input("최소 Train 수익률 (%)", -100.0, 1000.0, 0.0)
         min_test_ret = c6.number_input("최소 Test 수익률 (%)", -100.0, 1000.0, 0.0)
+        
         limit_mdd = st.number_input("최대 낙폭(MDD) 한계 (%, 절대값)", min_value=0.0, max_value=100.0, value=0.0, step=1.0)
 
     colL, colR = st.columns(2)
@@ -524,6 +560,7 @@ with tab4:
         cand_buy_op = st.text_input("매수 부호", "<,>")
         cand_off_ma_buy = st.text_input("매수 이평 Offset", "1, 5, 10, 20, 50")
         cand_ma_buy = st.text_input("매수 이평 (MA Buy)", "1, 5, 10, 20, 50, 60, 120")
+        
         st.divider()
         cand_off_cl_sell = st.text_input("매도 종가 Offset", "1, 5, 10, 20, 50")
         cand_sell_op = st.text_input("매도 부호", "<,>,OFF")
@@ -534,13 +571,17 @@ with tab4:
         st.markdown("#### 2. 추세 & 리스크")
         cand_use_tr_buy = st.text_input("매수 추세필터 (True, False)", "True, False")
         cand_use_tr_sell = st.text_input("매도 역추세필터", "True")
+        
         cand_ma_s = st.text_input("추세 Short 후보", "1, 5, 10, 20, 50, 60, 120")
         cand_ma_l = st.text_input("추세 Long 후보", "1, 5, 10, 20, 50, 60, 120")
         cand_off_s = st.text_input("추세 Short Offset", "1, 5, 10, 20, 50")
         cand_off_l = st.text_input("추세 Long Offset", "1, 5, 10, 20, 50")
+        
         st.divider()
         cand_stop = st.text_input("손절(%) 후보 (0=미사용)", "0, 15, 25, 35")
         cand_take = st.text_input("익절(%) 후보", "0, 15, 25, 35")
+        
+        # [추가됨] ATR 실험 설정
         st.markdown("##### 📉 ATR 손절 실험")
         cand_use_atr = st.text_input("ATR 사용 여부", "False, True")
         cand_atr_mult = st.text_input("ATR 배수 후보", "2, 3, 4")
@@ -558,13 +599,16 @@ with tab4:
             "ma_compare_short": parse_choices(cand_ma_s, "int"), "ma_compare_long": parse_choices(cand_ma_l, "int"),
             "offset_compare_short": parse_choices(cand_off_s, "int"), "offset_compare_long": parse_choices(cand_off_l, "int"),
             "stop_loss_pct": parse_choices(cand_stop, "float"), "take_profit_pct": parse_choices(cand_take, "float"),
+            # [추가됨] ATR 실험
             "use_atr_stop": parse_choices(cand_use_atr, "bool"),
             "atr_multiplier": parse_choices(cand_atr_mult, "float")
         }
+        
         constraints = {
             "min_trades": min_trades, "min_winrate": min_win, "limit_mdd": limit_mdd,
             "min_train_ret": min_train_ret, "min_test_ret": min_test_ret
         }
+        
         with st.spinner("AI가 최적의 파라미터를 탐색 중입니다..."):
             df_opt = auto_search_train_test(
                 signal_ticker, trade_ticker, start_date, end_date, split_ratio, choices, 
@@ -577,6 +621,7 @@ with tab4:
                 for col in df_opt.columns:
                     df_opt[col] = pd.to_numeric(df_opt[col], errors='ignore')
                 df_opt = df_opt.round(2)
+
                 st.session_state['opt_results'] = df_opt 
                 st.session_state['sort_metric'] = sort_metric
             else:
@@ -587,210 +632,326 @@ with tab4:
         st.markdown("#### 🏆 상위 결과 (적용 버튼을 누르면 즉시 백테스트 실행)")
         for i, row in df_show.iterrows():
             c1, c2 = st.columns([4, 1])
-            with c1: st.dataframe(pd.DataFrame([row]), hide_index=True, use_container_width=True)
+            with c1:
+                st.dataframe(pd.DataFrame([row]), hide_index=True, use_container_width=True)
             with c2:
-                if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)): st.rerun()
+                if st.button(f"🥇 적용하기 #{i}", key=f"apply_{i}", on_click=apply_opt_params, args=(row,)):
+                    st.rerun()
+
 
 with tab5:
     st.markdown("### 🧮 매매 계획 계산기 (손절 & 익절)")
+    st.caption("진입 정보를 입력하면, ATR(변동성)과 고정 비율(%) 기준의 목표가를 비교해줍니다.")
+
+    # 1. 기본 정보 입력
     c1, c2, c3 = st.columns(3)
     calc_ticker = c1.text_input("종목 티커", value="SOXL", key="calc_ticker")
     calc_date = c2.date_input("매수(진입) 날짜", value=datetime.date.today(), key="calc_date")
     calc_price = c3.number_input("매수 가격 ($)", value=0.0, step=0.1, format="%.2f", key="calc_price")
     
+    st.divider()
+    
+    # 2. 설정 입력 (ATR vs 고정%)
     col_input_l, col_input_r = st.columns(2)
+    
     with col_input_l:
         st.info("🌊 ATR (변동성) 기준 설정")
         c_l1, c_l2 = st.columns(2)
-        calc_atr_sl = c_l1.number_input("손절 배수 (SL)", value=2.0, step=0.5)
-        calc_atr_tp = c_l2.number_input("익절 배수 (TP)", value=4.0, step=0.5)
+        calc_atr_sl = c_l1.number_input("손절 배수 (SL)", value=2.0, step=0.5, help="보통 2~3배를 사용합니다.")
+        calc_atr_tp = c_l2.number_input("익절 배수 (TP)", value=4.0, step=0.5, help="손절 배수의 2배 정도가 이상적입니다.")
+    
     with col_input_r:
         st.success("🛑 고정 비율 (%) 기준 설정")
         c_r1, c_r2 = st.columns(2)
         calc_pct_sl = c_r1.number_input("손절 비율 (%)", value=5.0, step=1.0)
         calc_pct_tp = c_r2.number_input("익절 비율 (%)", value=10.0, step=1.0)
     
+    # 3. 계산 버튼 및 로직
     if st.button("🧮 손익 계산하기", type="primary", use_container_width=True):
         if not calc_ticker or calc_price <= 0:
             st.error("티커와 매수 가격을 정확히 입력해주세요.")
         else:
+            # 데이터 로드 (넉넉하게)
             start_search = calc_date - datetime.timedelta(days=60)
             end_search = calc_date + datetime.timedelta(days=1)
+            
             with st.spinner("데이터 분석 중..."):
                 df_calc = get_data(calc_ticker, start_search, end_search)
+            
             if df_calc is not None and not df_calc.empty:
+                # ATR 계산
                 high_low = df_calc['High'] - df_calc['Low']
                 high_close = (df_calc['High'] - df_calc['Close'].shift()).abs()
                 low_close = (df_calc['Low'] - df_calc['Close'].shift()).abs()
                 ranges = pd.concat([high_low, high_close, low_close], axis=1)
                 df_calc['ATR'] = ranges.max(axis=1).rolling(window=14).mean()
                 
+                # 날짜 매칭
                 target_date_str = calc_date.strftime("%Y-%m-%d")
                 row = df_calc.loc[df_calc['Date'] == target_date_str]
+                
                 if row.empty:
                     row = df_calc.iloc[[-1]]
                     st.toast(f"⚠️ {target_date_str} 데이터가 없어 최근일({row['Date'].values[0]}) 기준으로 계산합니다.")
+
                 atr_val = row['ATR'].values[0]
                 
-                if pd.isna(atr_val): st.error("데이터 부족으로 ATR을 계산할 수 없습니다.")
+                if pd.isna(atr_val):
+                    st.error("데이터 부족으로 ATR을 계산할 수 없습니다.")
                 else:
+                    # --- A. ATR 기준 계산 ---
                     atr_sl_price = calc_price - (atr_val * calc_atr_sl)
                     atr_tp_price = calc_price + (atr_val * calc_atr_tp)
+                    
+                    # 실제 변동폭 % 환산
                     atr_sl_pct = ((calc_price - atr_sl_price) / calc_price) * 100
                     atr_tp_pct = ((atr_tp_price - calc_price) / calc_price) * 100
+                    
+                    # --- B. 고정 % 기준 계산 ---
                     pct_sl_price = calc_price * (1 - calc_pct_sl / 100)
                     pct_tp_price = calc_price * (1 + calc_pct_tp / 100)
                     
+                    # --- 결과 출력 ---
                     st.markdown(f"#### 📊 분석 결과 (진입가: **${calc_price:.2f}**)")
                     st.caption(f"📅 기준일 변동성(ATR): **${atr_val:.2f}**")
+
                     res_col1, res_col2 = st.columns(2)
+                    
+                    # [왼쪽] ATR 결과
                     with res_col1:
                         st.info(f"🌊 **ATR 기준 (SL x{calc_atr_sl} / TP x{calc_atr_tp})**")
                         st.metric("🚀 익절 목표가", f"${atr_tp_price:.2f}", f"+{atr_tp_pct:.2f}%")
                         st.metric("📉 손절 방어선", f"${atr_sl_price:.2f}", f"-{atr_sl_pct:.2f}%", delta_color="inverse")
+                        
+                        if atr_sl_pct > calc_pct_sl:
+                            st.warning(f"⚠️ 변동성이 큽니다! (ATR 손절폭 -{atr_sl_pct:.1f}% > 고정 -{calc_pct_sl}%)")
+
+                    # [오른쪽] 고정 % 결과
                     with res_col2:
                         st.success(f"🛑 **고정 비율 (SL -{calc_pct_sl}% / TP +{calc_pct_tp}%)**")
                         st.metric("🚀 익절 목표가", f"${pct_tp_price:.2f}", f"+{calc_pct_tp:.2f}%")
                         st.metric("📉 손절 방어선", f"${pct_sl_price:.2f}", f"-{calc_pct_sl:.2f}%", delta_color="inverse")
-            else: st.error("데이터를 불러올 수 없습니다.")
+                        
+            else:
+                st.error("데이터를 불러올 수 없습니다.")
 
-# ==========================================
-# [수정된 Tab 6] 펀더멘털 분석 (하이브리드 & 오류 수정 버전)
-# ==========================================
+# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
 with tab6:
-    st.markdown("### 📊 펀더멘털 & EPS 추세 (FDR/Naver/Yahoo)")
-    st.caption("주가 데이터는 **FDR(통합 로더)**, 실적 데이터는 **Naver/Yahoo**를 사용합니다.")
-    
+    st.markdown("### 📊 펀더멘털 & EPS 추세 분석")
+    st.caption("주가(Price) 흐름과 기업의 **EPS(주당순이익)** 추이를 함께 비교합니다.")
+
     col_f1, col_f2 = st.columns([1, 3])
+    
     with col_f1:
-        fund_ticker = st.text_input("분석할 티커", value=st.session_state.signal_ticker_input, key="fund_tk")
-        f_years = st.slider("기간(년)", 1, 5, 3, key="fy")
+        default_ticker = st.session_state.get("signal_ticker", "NVDA")
+        f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
+        f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
         
         korea_period = "분기(Quarter)"
-        if fund_ticker.endswith(".KS") or fund_ticker.endswith(".KQ"):
-            korea_period = st.radio("🇰🇷 기준", ["연간(Annual)", "분기(Quarter)"])
+        if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
+            korea_period = st.radio("🇰🇷 실적 기준 선택", ["연간(Annual)", "분기(Quarter)"])
+        
+        st.info("""
+        **차트 보는 법:**
+        - **⚫ 회색선 (Left):** 주가 (Price)
+        - **🔵 파란선 (Right):** EPS (주당순이익)
+        
+        ※ EPS를 찾지 못할 경우 '순이익'으로 대체되며 제목에 표시됩니다.
+        """)
 
     with col_f2:
-        if st.button("📉 차트 그리기", type="primary"):
-            end_d = datetime.date.today()
-            start_d = end_d - datetime.timedelta(days=365 * f_years)
-            
-            # 1. 주가 데이터 (FDR 사용 - 가장 신뢰도 높음)
-            # 한국 주식 티커 전처리 (005930.KS -> 005930)
-            fdr_code = fund_ticker
-            if fund_ticker.endswith(".KS") or fund_ticker.endswith(".KQ"):
-                fdr_code = fund_ticker.split('.')[0]
-            
-            try:
-                df_p = fdr.DataReader(fdr_code, start_d, end_d).reset_index()
-                # 컬럼 이름 표준화 (Date, Close)
-                if 'Date' not in df_p.columns and 'index' in df_p.columns:
-                    df_p.rename(columns={'index': 'Date'}, inplace=True)
-                elif 'Date' not in df_p.columns: # 인덱스가 날짜인 경우
-                    df_p.rename(columns={df_p.columns[0]: 'Date'}, inplace=True)
+        if st.button("📉 데이터 가져오기", type="primary"):
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+            import yfinance as yf
+            import requests
+            import datetime
+
+            # -----------------------------------------------------------
+            # 🇰🇷 한국 주식 로직 (네이버 금융 + EPS Line Chart)
+            # -----------------------------------------------------------
+            if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
+                st.subheader(f"🇰🇷 {f_ticker} 주가 vs EPS ({korea_period})")
+                code = f_ticker.split('.')[0]
+                url = f"https://finance.naver.com/item/main.naver?code={code}"
                 
-                df_p['Date'] = pd.to_datetime(df_p['Date'])
-            except Exception as e:
-                st.error(f"주가 데이터 로드 실패: {e}")
-                df_p = pd.DataFrame()
-            
-            # 2. 🇰🇷 국장 로직 (Naver 금융 크롤링)
-            if fund_ticker.endswith(".KS") or fund_ticker.endswith(".KQ"):
                 try:
-                    code = fund_ticker.split('.')[0]
-                    url = f"https://finance.naver.com/item/main.naver?code={code}"
+                    # 1. 재무 데이터 크롤링
                     headers = {'User-Agent': 'Mozilla/5.0'}
-                    r = requests.get(url, headers=headers)
-                    dfs = pd.read_html(r.text, encoding='euc-kr')
+                    response = requests.get(url, headers=headers)
+                    response.raise_for_status()
+                    dfs = pd.read_html(response.text, encoding='euc-kr')
                     
                     df_fin = None
                     for df in dfs:
-                        if df.shape[1]>3 and df.iloc[:,0].astype(str).str.contains("매출액|영업이익").any():
-                            df_fin = df; break
+                        # 매출액이나 영업이익이 있는 표 찾기
+                        if df.shape[1] > 3 and df.iloc[:, 0].astype(str).str.contains("매출액|영업이익").any():
+                            df_fin = df
+                            break
                     
                     if df_fin is not None:
-                        # [핵심] 컬럼 중복 처리 (2023.12, 2023.12 -> 2023.12.1)
-                        raw = [c[1] for c in df_fin.columns]
-                        new = []
-                        cnt = {}
-                        for c in raw:
-                            if c in cnt: cnt[c]+=1; new.append(f"{c}.{cnt[c]}")
-                            else: cnt[c]=0; new.append(c)
-                        df_fin.columns = new
+                        # 컬럼 중복 처리
+                        raw_cols = [c[1] for c in df_fin.columns]
+                        new_cols = []
+                        counts = {}
+                        for col in raw_cols:
+                            if col in counts: counts[col] += 1; new_cols.append(f"{col}.{counts[col]}")
+                            else: counts[col] = 0; new_cols.append(col)
+                        df_fin.columns = new_cols
                         df_fin.set_index(df_fin.columns[0], inplace=True)
-                        
-                        target_cols = df_fin.columns[:4] if "연간" in korea_period else df_fin.columns[4:]
-                        
-                        # EPS 우선 찾기, 없으면 순이익
-                        row_name = "당기순이익"
-                        is_eps = False
-                        for c in ["EPS(원)", "지배주주EPS", "EPS"]:
-                            if df_fin.index.str.contains(c).any():
-                                row_name = df_fin.index[df_fin.index.str.contains(c)][0]
-                                is_eps = True; break
-                        
-                        dates, vals = [], []
-                        if row_name in df_fin.index:
-                            row_data = df_fin.loc[row_name][target_cols]
-                            for c, v in row_data.items():
-                                try:
-                                    dt = datetime.datetime.strptime(c.split('(')[0].strip().replace('(E)', ''), "%Y.%m").replace(day=15)
-                                    val = float(str(v).replace(',','').strip())
-                                    dates.append(dt); vals.append(val)
-                                except: pass
 
-                        if dates and not df_p.empty:
-                            fig, ax1 = plt.subplots(figsize=(10,5))
-                            ax1.plot(df_p['Date'], df_p['Close'], color='gray', alpha=0.5, label='Price')
-                            ax1.set_ylabel('Price', color='gray')
+                        # 2. 데이터 분류 (연간 vs 분기)
+                        target_cols = []
+                        if "연간" in korea_period:
+                            target_cols = [c for c in df_fin.columns[:4]] 
+                        else:
+                            target_cols = [c for c in df_fin.columns[4:]]
+
+                        # [핵심 수정] EPS 우선 검색 로직
+                        # 네이버 금융에서 EPS 표기법들을 순차적으로 찾습니다.
+                        candidates = ["EPS(원)", "지배주주EPS(원)", "EPS"] 
+                        row_name = None
+                        is_eps = False
+                        
+                        for cand in candidates:
+                            # 부분 일치 검색
+                            matches = df_fin.index[df_fin.index.str.contains(cand, na=False)]
+                            if len(matches) > 0:
+                                row_name = matches[0] # 첫 번째 매칭된 행 이름 사용
+                                is_eps = True
+                                break
+                        
+                        # EPS가 정 없으면 당기순이익으로 대체 (그래프라도 보여주기 위함)
+                        if row_name is None:
+                            row_name = "당기순이익"
+                            if df_fin.index.str.contains(row_name).any():
+                                st.warning(f"⚠️ 'EPS' 데이터를 찾을 수 없어 '{row_name}'으로 대체합니다.")
+                            else:
+                                st.error("재무 데이터에서 실적 항목을 찾을 수 없습니다.")
+                                st.stop()
+
+                        # 데이터 추출
+                        eps_row = df_fin.loc[row_name][target_cols]
+                        
+                        # 데이터 정제
+                        dates = []
+                        values = []
+                        
+                        for col, val in eps_row.items():
+                            try:
+                                clean_date_str = col.split('(')[0].strip().replace('(E)', '')
+                                dt = datetime.datetime.strptime(clean_date_str, "%Y.%m")
+                                dt = dt.replace(day=15)
+                                
+                                clean_val = float(str(val).replace(',', '').strip())
+                                
+                                dates.append(dt)
+                                values.append(clean_val)
+                            except: pass
+                        
+                        # 3. 차트 그리기
+                        if dates:
+                            start_d_price = min(dates) - datetime.timedelta(days=90)
+                            end_d_price = datetime.date.today()
+                            df_price = get_data(f_ticker, start_d_price, end_d_price)
+
+                            fig, ax1 = plt.subplots(figsize=(10, 5))
+
+                            # 축 1: 주가 (회색)
+                            ax1.set_xlabel('Date')
+                            ax1.set_ylabel('Price (KRW)', color='gray')
+                            ax1.plot(df_price['Date'], df_price['Close'], color='gray', alpha=0.5, linewidth=1.5, label='Stock Price', zorder=1)
+                            ax1.tick_params(axis='y', labelcolor='gray')
+
+                            # 축 2: 실적 (EPS면 파란색, 순이익이면 빨간색)
+                            ax2 = ax1.twinx()
+                            
+                            color = 'blue' if is_eps else 'crimson'
+                            label_name = f"EPS (Won)" if is_eps else f"{row_name} (Net Income)"
+                            
+                            ax2.set_ylabel(label_name, color=color)
+                            ax2.plot(dates, values, color=color, marker='o', linestyle='-', linewidth=2, markersize=6, label=label_name, zorder=2)
+                            
+                            for d, v in zip(dates, values):
+                                ax2.text(d, v, f"{v:,.0f}", ha='center', va='bottom', fontsize=9, color=color, fontweight='bold')
+
+                            ax2.tick_params(axis='y', labelcolor=color)
                             ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
                             
-                            ax2 = ax1.twinx()
-                            col = 'blue' if is_eps else 'red'
-                            ax2.plot(dates, vals, color=col, marker='o', lw=2, label=row_name)
-                            ax2.set_ylabel(row_name, color=col)
-                            
-                            for d,v in zip(dates, vals): ax2.text(d,v,f"{v:,.0f}", ha='center', va='bottom', color=col)
+                            plt.title(f"{f_ticker} Price vs {label_name}", fontsize=15)
+                            ax1.grid(True, alpha=0.3)
                             
                             lines1, labels1 = ax1.get_legend_handles_labels()
                             lines2, labels2 = ax2.get_legend_handles_labels()
                             ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-                            
+
                             st.pyplot(fig)
-                            st.dataframe(df_fin.loc[[row_name]][target_cols])
+                            
+                            st.write(f"#### 📋 상세 재무제표 ({row_name})")
+                            st.dataframe(df_fin.loc[[row_name]][target_cols], use_container_width=True)
+                            
+                            if any("(E)" in c for c in target_cols):
+                                st.caption("※ (E)는 컨센서스(예상치) 입니다.")
+                                
                         else:
-                            st.warning("데이터 매칭 실패 (날짜/주가 불일치)")
+                            st.warning("유효한 날짜 데이터를 찾을 수 없습니다.")
+
                     else:
-                        st.warning("재무제표 테이블을 찾을 수 없습니다.")
-                except Exception as e: st.error(f"오류: {e}")
+                        st.warning("재무제표 데이터를 찾을 수 없습니다.")
 
-            # 3. 🇺🇸 미장 로직 (Yahoo Finance EPS)
+                except Exception as e:
+                    st.error(f"분석 실패: {e}")
+
+            # -----------------------------------------------------------
+            # 🇺🇸 미국 주식 로직 (기존 유지)
+            # -----------------------------------------------------------
             else:
-                try:
-                    tick = yf.Ticker(fund_ticker)
-                    eps = tick.get_earnings_dates()
-                    if eps is not None and not eps.empty:
-                        eps = eps.sort_index()
-                        if eps.index.tz: eps.index = eps.index.tz_localize(None)
-                        eps = eps[eps.index >= pd.Timestamp(start_d)]
+                st.subheader(f"🇺🇸 {f_ticker} Earnings Surprise (Est vs Actual)")
+                with st.spinner("미국 주식 데이터 분석 중..."):
+                    try:
+                        end_d = datetime.date.today()
+                        start_d = end_d - datetime.timedelta(days=365 * f_years)
+                        df_price = get_data(f_ticker, start_d, end_d)
                         
-                        fig, ax1 = plt.subplots(figsize=(10,5))
-                        if not df_p.empty:
-                            ax1.plot(df_p['Date'], df_p['Close'], 'k-', alpha=0.3, label='Price')
-                            ax1.set_ylabel('Price ($)')
+                        tick = yf.Ticker(f_ticker)
+                        df_eps = tick.get_earnings_dates()
                         
-                        ax2 = ax1.twinx()
-                        ax2.set_ylabel('EPS ($)', color='blue')
-                        if 'EPS Estimate' in eps.columns:
-                            ax2.plot(eps.index, eps['EPS Estimate'], 'b--o', label='Est')
-                        if 'Reported EPS' in eps.columns:
-                            act = eps.dropna(subset=['Reported EPS'])
-                            ax2.plot(act.index, act['Reported EPS'], 'g-D', label='Actual')
-                        
-                        lines1, labels1 = ax1.get_legend_handles_labels()
-                        lines2, labels2 = ax2.get_legend_handles_labels()
-                        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+                        if df_eps is not None and not df_eps.empty:
+                            df_eps = df_eps.sort_index()
+                            if df_eps.index.tz is not None: df_eps.index = df_eps.index.tz_localize(None)
+                            df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
+                            
+                            if df_eps.empty:
+                                st.warning("조회 기간 내 EPS 데이터가 없습니다.")
+                            else:
+                                fig, ax1 = plt.subplots(figsize=(10, 5))
+                                ax1.set_xlabel('Date')
+                                ax1.set_ylabel('Price ($)', color='black')
+                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.2, label='Price')
+                                
+                                ax2 = ax1.twinx()
+                                ax2.set_ylabel('EPS ($)', color='blue')
+                                if 'EPS Estimate' in df_eps.columns:
+                                    ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='--', alpha=0.6, label='Estimate')
+                                if 'Reported EPS' in df_eps.columns:
+                                    actual_data = df_eps.dropna(subset=['Reported EPS'])
+                                    ax2.plot(actual_data.index, actual_data['Reported EPS'], color='green', marker='D', linestyle='-', markersize=8, label='Actual')
 
-                        st.pyplot(fig)
-                    else: st.warning("EPS 데이터 없음")
-                except Exception as e: st.error(f"오류: {e}")
+                                ax2.tick_params(axis='y', labelcolor='green')
+                                plt.title(f"{f_ticker} Price vs Earnings Surprise")
+                                ax1.grid(True, alpha=0.3)
+                                lines1, labels1 = ax1.get_legend_handles_labels()
+                                lines2, labels2 = ax2.get_legend_handles_labels()
+                                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+                                st.pyplot(fig)
+                                
+                                if 'Reported EPS' in df_eps.columns:
+                                    last_row = df_eps.dropna(subset=['Reported EPS']).iloc[-1]
+                                    est, act = last_row['EPS Estimate'], last_row['Reported EPS']
+                                    if pd.notna(est) and pd.notna(act):
+                                        surprise = act - est
+                                        st.markdown(f"#### 📢 최근 실적: 예상 ${est:.2f} vs 실제 ${act:.2f} ({'Beat' if surprise>0 else 'Miss'})")
+                        else:
+                            st.warning("EPS 추정치 데이터가 없습니다.")
+                    except Exception as e:
+                        st.error(f"오류 발생: {e}")
