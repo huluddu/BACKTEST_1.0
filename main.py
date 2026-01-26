@@ -246,7 +246,7 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
 # ==========================================
 # 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
 # ==========================================
-tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털"])
+tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 계산기"])
 
 with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
@@ -285,8 +285,8 @@ with tab1:
 with tab2:
     st.markdown("### 📚 전략 일괄 진단 대시보드")
     
-    # 백테스트 실행 여부 체크박스
-    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (체크 시 속도가 느려집니다)", value=True)
+    # [추가됨] 백테스트 실행 여부 체크박스
+    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (시간이 조금 더 걸립니다)", value=True)
     
     if st.button("🚀 모든 프리셋 분석 시작", type="primary"):
         rows = []
@@ -301,6 +301,7 @@ with tab2:
             
             # 1. 기본 정보 추출
             s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
+            # 백테스트를 안 할거면 trade/market 티커는 굳이 필요 없지만, 데이터 로드를 위해 유지
             t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
             m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
             
@@ -312,22 +313,19 @@ with tab2:
                 int(p.get("ma_compare_long", 0) or 0)
             ]
             
-            # 데이터 로드
             base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
                 s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
                 int(p.get("market_ma_period", 200))
             )
             
             if base is not None and not base.empty:
-                # -----------------------------------------------------------
-                # A. 시그널 상태 확인 (여기서 '매수/매도 중복' 라벨을 가져옵니다)
-                # -----------------------------------------------------------
+                # A. 시그널 상태 확인 (이건 항상 실행)
                 sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
                 
                 row_data = {
                     "전략명": name,
                     "티커": s_ticker,
-                    "현재상태": sig_res["label"], # <-- strategy.py에서 만든 라벨이 여기에 들어갑니다
+                    "현재상태": sig_res["label"],
                     "최근매수": sig_res["last_buy"]
                 }
 
@@ -392,10 +390,10 @@ with tab2:
             
             st.success("✅ 분석 완료!")
             
-            # 컬럼 설정
+            # 컬럼 설정 (백테스트 안 할 때는 불필요한 컬럼 숨기거나 단순화 가능하지만 여기선 다 보여줌)
             cols_config = {
                 "전략명": st.column_config.TextColumn("전략 이름"),
-                "현재상태": st.column_config.TextColumn("시그널", help="⚠️ 표시가 뜨면 매수/매도 조건이 겹친 것입니다."),
+                "현재상태": st.column_config.TextColumn("시그널"),
                 "최근매수": st.column_config.TextColumn("최근 매수일")
             }
             
@@ -735,223 +733,7 @@ with tab5:
             else:
                 st.error("데이터를 불러올 수 없습니다.")
 
-# --- 탭 6: 펀더멘털 (주가 vs EPS) ---
-with tab6:
-    st.markdown("### 📊 펀더멘털 & EPS 추세 분석")
-    st.caption("주가(Price) 흐름과 기업의 **EPS(주당순이익)** 추이를 함께 비교합니다.")
 
-    col_f1, col_f2 = st.columns([1, 3])
-    
-    with col_f1:
-        default_ticker = st.session_state.get("signal_ticker", "NVDA")
-        f_ticker = st.text_input("분석할 티커", value=default_ticker, key="fund_ticker")
-        f_years = st.slider("조회 기간 (년)", 1, 5, 3, key="fund_years")
-        
-        korea_period = "분기(Quarter)"
-        if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
-            korea_period = st.radio("🇰🇷 실적 기준 선택", ["연간(Annual)", "분기(Quarter)"])
-        
-        st.info("""
-        **차트 보는 법:**
-        - **⚫ 회색선 (Left):** 주가 (Price)
-        - **🔵 파란선 (Right):** EPS (주당순이익)
-        
-        ※ EPS를 찾지 못할 경우 '순이익'으로 대체되며 제목에 표시됩니다.
-        """)
 
-    with col_f2:
-        if st.button("📉 데이터 가져오기", type="primary"):
-            import matplotlib.pyplot as plt
-            import matplotlib.dates as mdates
-            import yfinance as yf
-            import requests
-            import datetime
 
-            # -----------------------------------------------------------
-            # 🇰🇷 한국 주식 로직 (네이버 금융 + EPS Line Chart)
-            # -----------------------------------------------------------
-            if f_ticker.endswith(".KS") or f_ticker.endswith(".KQ"):
-                st.subheader(f"🇰🇷 {f_ticker} 주가 vs EPS ({korea_period})")
-                code = f_ticker.split('.')[0]
-                url = f"https://finance.naver.com/item/main.naver?code={code}"
-                
-                try:
-                    # 1. 재무 데이터 크롤링
-                    headers = {'User-Agent': 'Mozilla/5.0'}
-                    response = requests.get(url, headers=headers)
-                    response.raise_for_status()
-                    dfs = pd.read_html(response.text, encoding='euc-kr')
-                    
-                    df_fin = None
-                    for df in dfs:
-                        # 매출액이나 영업이익이 있는 표 찾기
-                        if df.shape[1] > 3 and df.iloc[:, 0].astype(str).str.contains("매출액|영업이익").any():
-                            df_fin = df
-                            break
-                    
-                    if df_fin is not None:
-                        # 컬럼 중복 처리
-                        raw_cols = [c[1] for c in df_fin.columns]
-                        new_cols = []
-                        counts = {}
-                        for col in raw_cols:
-                            if col in counts: counts[col] += 1; new_cols.append(f"{col}.{counts[col]}")
-                            else: counts[col] = 0; new_cols.append(col)
-                        df_fin.columns = new_cols
-                        df_fin.set_index(df_fin.columns[0], inplace=True)
 
-                        # 2. 데이터 분류 (연간 vs 분기)
-                        target_cols = []
-                        if "연간" in korea_period:
-                            target_cols = [c for c in df_fin.columns[:4]] 
-                        else:
-                            target_cols = [c for c in df_fin.columns[4:]]
-
-                        # [핵심 수정] EPS 우선 검색 로직
-                        # 네이버 금융에서 EPS 표기법들을 순차적으로 찾습니다.
-                        candidates = ["EPS(원)", "지배주주EPS(원)", "EPS"] 
-                        row_name = None
-                        is_eps = False
-                        
-                        for cand in candidates:
-                            # 부분 일치 검색
-                            matches = df_fin.index[df_fin.index.str.contains(cand, na=False)]
-                            if len(matches) > 0:
-                                row_name = matches[0] # 첫 번째 매칭된 행 이름 사용
-                                is_eps = True
-                                break
-                        
-                        # EPS가 정 없으면 당기순이익으로 대체 (그래프라도 보여주기 위함)
-                        if row_name is None:
-                            row_name = "당기순이익"
-                            if df_fin.index.str.contains(row_name).any():
-                                st.warning(f"⚠️ 'EPS' 데이터를 찾을 수 없어 '{row_name}'으로 대체합니다.")
-                            else:
-                                st.error("재무 데이터에서 실적 항목을 찾을 수 없습니다.")
-                                st.stop()
-
-                        # 데이터 추출
-                        eps_row = df_fin.loc[row_name][target_cols]
-                        
-                        # 데이터 정제
-                        dates = []
-                        values = []
-                        
-                        for col, val in eps_row.items():
-                            try:
-                                clean_date_str = col.split('(')[0].strip().replace('(E)', '')
-                                dt = datetime.datetime.strptime(clean_date_str, "%Y.%m")
-                                dt = dt.replace(day=15)
-                                
-                                clean_val = float(str(val).replace(',', '').strip())
-                                
-                                dates.append(dt)
-                                values.append(clean_val)
-                            except: pass
-                        
-                        # 3. 차트 그리기
-                        if dates:
-                            start_d_price = min(dates) - datetime.timedelta(days=90)
-                            end_d_price = datetime.date.today()
-                            df_price = get_data(f_ticker, start_d_price, end_d_price)
-
-                            fig, ax1 = plt.subplots(figsize=(10, 5))
-
-                            # 축 1: 주가 (회색)
-                            ax1.set_xlabel('Date')
-                            ax1.set_ylabel('Price (KRW)', color='gray')
-                            ax1.plot(df_price['Date'], df_price['Close'], color='gray', alpha=0.5, linewidth=1.5, label='Stock Price', zorder=1)
-                            ax1.tick_params(axis='y', labelcolor='gray')
-
-                            # 축 2: 실적 (EPS면 파란색, 순이익이면 빨간색)
-                            ax2 = ax1.twinx()
-                            
-                            color = 'blue' if is_eps else 'crimson'
-                            label_name = f"EPS (Won)" if is_eps else f"{row_name} (Net Income)"
-                            
-                            ax2.set_ylabel(label_name, color=color)
-                            ax2.plot(dates, values, color=color, marker='o', linestyle='-', linewidth=2, markersize=6, label=label_name, zorder=2)
-                            
-                            for d, v in zip(dates, values):
-                                ax2.text(d, v, f"{v:,.0f}", ha='center', va='bottom', fontsize=9, color=color, fontweight='bold')
-
-                            ax2.tick_params(axis='y', labelcolor=color)
-                            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-                            
-                            plt.title(f"{f_ticker} Price vs {label_name}", fontsize=15)
-                            ax1.grid(True, alpha=0.3)
-                            
-                            lines1, labels1 = ax1.get_legend_handles_labels()
-                            lines2, labels2 = ax2.get_legend_handles_labels()
-                            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-
-                            st.pyplot(fig)
-                            
-                            st.write(f"#### 📋 상세 재무제표 ({row_name})")
-                            st.dataframe(df_fin.loc[[row_name]][target_cols], use_container_width=True)
-                            
-                            if any("(E)" in c for c in target_cols):
-                                st.caption("※ (E)는 컨센서스(예상치) 입니다.")
-                                
-                        else:
-                            st.warning("유효한 날짜 데이터를 찾을 수 없습니다.")
-
-                    else:
-                        st.warning("재무제표 데이터를 찾을 수 없습니다.")
-
-                except Exception as e:
-                    st.error(f"분석 실패: {e}")
-
-            # -----------------------------------------------------------
-            # 🇺🇸 미국 주식 로직 (기존 유지)
-            # -----------------------------------------------------------
-            else:
-                st.subheader(f"🇺🇸 {f_ticker} Earnings Surprise (Est vs Actual)")
-                with st.spinner("미국 주식 데이터 분석 중..."):
-                    try:
-                        end_d = datetime.date.today()
-                        start_d = end_d - datetime.timedelta(days=365 * f_years)
-                        df_price = get_data(f_ticker, start_d, end_d)
-                        
-                        tick = yf.Ticker(f_ticker)
-                        df_eps = tick.get_earnings_dates()
-                        
-                        if df_eps is not None and not df_eps.empty:
-                            df_eps = df_eps.sort_index()
-                            if df_eps.index.tz is not None: df_eps.index = df_eps.index.tz_localize(None)
-                            df_eps = df_eps[df_eps.index >= pd.Timestamp(start_d)]
-                            
-                            if df_eps.empty:
-                                st.warning("조회 기간 내 EPS 데이터가 없습니다.")
-                            else:
-                                fig, ax1 = plt.subplots(figsize=(10, 5))
-                                ax1.set_xlabel('Date')
-                                ax1.set_ylabel('Price ($)', color='black')
-                                ax1.plot(df_price['Date'], df_price['Close'], color='black', alpha=0.2, label='Price')
-                                
-                                ax2 = ax1.twinx()
-                                ax2.set_ylabel('EPS ($)', color='blue')
-                                if 'EPS Estimate' in df_eps.columns:
-                                    ax2.plot(df_eps.index, df_eps['EPS Estimate'], color='blue', marker='o', linestyle='--', alpha=0.6, label='Estimate')
-                                if 'Reported EPS' in df_eps.columns:
-                                    actual_data = df_eps.dropna(subset=['Reported EPS'])
-                                    ax2.plot(actual_data.index, actual_data['Reported EPS'], color='green', marker='D', linestyle='-', markersize=8, label='Actual')
-
-                                ax2.tick_params(axis='y', labelcolor='green')
-                                plt.title(f"{f_ticker} Price vs Earnings Surprise")
-                                ax1.grid(True, alpha=0.3)
-                                lines1, labels1 = ax1.get_legend_handles_labels()
-                                lines2, labels2 = ax2.get_legend_handles_labels()
-                                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-                                st.pyplot(fig)
-                                
-                                if 'Reported EPS' in df_eps.columns:
-                                    last_row = df_eps.dropna(subset=['Reported EPS']).iloc[-1]
-                                    est, act = last_row['EPS Estimate'], last_row['Reported EPS']
-                                    if pd.notna(est) and pd.notna(act):
-                                        surprise = act - est
-                                        st.markdown(f"#### 📢 최근 실적: 예상 ${est:.2f} vs 실제 ${act:.2f} ({'Beat' if surprise>0 else 'Miss'})")
-                        else:
-                            st.warning("EPS 추정치 데이터가 없습니다.")
-                    except Exception as e:
-                        st.error(f"오류 발생: {e}")
