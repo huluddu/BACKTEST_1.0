@@ -437,16 +437,57 @@ with tab3:
             st.rerun()
         else: st.error("데이터 로딩 실패")
 
-    if "bt_result" in st.session_state:
+if "bt_result" in st.session_state:
         res = st.session_state["bt_result"]
         if res:
+            # ---------------------------------------
+            # [NEW] B&H(단순보유) 성과 계산 로직 추가
+            # ---------------------------------------
+            bh_return = 0.0
+            bh_mdd = 0.0
+            
+            df_log = pd.DataFrame(res['매매 로그'])
+            
+            if not df_log.empty:
+                # 1. B&H 수익률
+                first_price = df_log['종가'].iloc[0]
+                last_price = df_log['종가'].iloc[-1]
+                bh_return = ((last_price - first_price) / first_price) * 100
+                
+                # 2. B&H MDD
+                # (가격 흐름 자체가 자산 곡선이 됨)
+                price_series = df_log['종가']
+                running_max = price_series.cummax()
+                drawdown = (price_series - running_max) / running_max * 100
+                bh_mdd = drawdown.min()
+
+            # ---------------------------------------
+            # [NEW] 메트릭 표시 (전략 vs B&H 비교)
+            # ---------------------------------------
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("총 수익률", f"{res['수익률 (%)']}%", delta_color="normal")
-            k2.metric("MDD (최대낙폭)", f"{res['MDD (%)']}%", delta_color="inverse")
+            
+            # 수익률: 전략값 보여주고, 작은 글씨(delta)로 B&H 수익률 표시
+            k1.metric(
+                "총 수익률", 
+                f"{res['수익률 (%)']}%", 
+                f"B&H: {bh_return:.1f}%", 
+                delta_color="off" # 색상 끄기 (단순 비교용)
+            )
+            
+            # MDD: 전략값 보여주고, 작은 글씨로 B&H MDD 표시
+            k2.metric(
+                "MDD (최대낙폭)", 
+                f"{res['MDD (%)']}%", 
+                f"B&H: {bh_mdd:.1f}%",
+                delta_color="inverse" # MDD는 음수니까 색상 반전 (빨간색이 나쁨)
+            )
+            
             k3.metric("승률", f"{res['승률 (%)']}%")
             k4.metric("Profit Factor", res['Profit Factor'])
             
-            df_log = pd.DataFrame(res['매매 로그'])
+            # ---------------------------------------
+            # (아래는 기존 차트 그리기 코드 그대로 유지)
+            # ---------------------------------------
             if not df_log.empty:
                 initial_price = df_log['종가'].iloc[0]
                 benchmark = (df_log['종가'] / initial_price) * 5000000
@@ -455,7 +496,6 @@ with tab3:
                 chart_data = res.get("차트데이터", {})
                 base_df = chart_data.get("base")
                 
-                # 차트 그리기
                 fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.5, 0.25, 0.25], 
                                     subplot_titles=("주가 & 매매타점 (Candle + MA)", "내 자산 vs 보유 전략 (Equity)", "MDD (%)"))
 
@@ -497,7 +537,7 @@ with tab3:
                 st.plotly_chart(fig_heat, use_container_width=True)
 
                 st.divider()
-                st.markdown("### 🤖 제미니 퀀트 컨설턴트 (1:1 대화)")
+                st.markdown("### 🤖 제미니 퀀트 컨설턴트")
                 chat_container = st.container(height=300)
                 for msg in st.session_state["chat_history"]:
                     with chat_container.chat_message(msg["role"]): st.write(msg["content"])
@@ -506,7 +546,7 @@ with tab3:
                     st.session_state["chat_history"].append({"role": "user", "content": prompt})
                     with chat_container.chat_message("user"): st.write(prompt)
                     with chat_container.chat_message("assistant"):
-                        current_p = f"매수:{ma_buy}MA, 매도:{ma_sell}MA, 손절:{stop_loss_pct}%"
+                        current_p = f"매수:{st.session_state.ma_buy}MA, 매도:{st.session_state.ma_sell}MA, 손절:{st.session_state.stop_loss_pct}%"
                         response = ask_gemini_chat(prompt, res, current_p, trade_ticker, st.session_state["gemini_api_key"], st.session_state.get("selected_model_name"))
                         st.write(response)
                         st.session_state["chat_history"].append({"role": "assistant", "content": response})
@@ -516,12 +556,11 @@ with tab3:
                 st.download_button(label="📥 매매 로그 다운로드 (CSV)", data=csv, file_name=f'backtest_log_{trade_ticker}_{datetime.date.today()}.csv', mime='text/csv')
 
                 st.divider()
-                st.markdown("### 🤖 Gemini AI 전략 컨설팅")
                 if st.button("✨ AI에게 분석 및 개선점 물어보기", type="primary"):
                     fd = get_fundamental_info(trade_ticker)
-                    sl_txt = f"{stop_loss_pct}%" if stop_loss_pct > 0 else "미설정"
-                    tp_txt = f"{take_profit_pct}%" if take_profit_pct > 0 else "미설정"
-                    current_params = f"매수: {ma_buy}일 이평, 매도: {ma_sell}일 이평, 손절: {sl_txt}, 익절: {tp_txt}"
+                    sl_txt = f"{st.session_state.stop_loss_pct}%" if st.session_state.stop_loss_pct > 0 else "미설정"
+                    tp_txt = f"{st.session_state.take_profit_pct}%" if st.session_state.take_profit_pct > 0 else "미설정"
+                    current_params = f"매수: {st.session_state.ma_buy}일 이평, 매도: {st.session_state.ma_sell}일 이평, 손절: {sl_txt}, 익절: {tp_txt}"
                     anl = ask_gemini_comprehensive_analysis(res, fd, current_params, trade_ticker, st.session_state.get("gemini_api_key"), st.session_state.get("selected_model_name", "gemini-1.5-flash"))
                     st.session_state["ai_analysis"] = anl       
                 
@@ -954,4 +993,5 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
