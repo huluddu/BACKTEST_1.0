@@ -437,7 +437,7 @@ with tab3:
             st.rerun()
         else: st.error("데이터 로딩 실패")
 
-if "bt_result" in st.session_state:
+    if "bt_result" in st.session_state:
         res = st.session_state["bt_result"]
         if res:
             # ---------------------------------------
@@ -993,5 +993,6 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
