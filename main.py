@@ -381,15 +381,16 @@ with tab2:
                 st.warning("분석할 프리셋이 없습니다.")
 
 # ---------------------------------------------------------
-    # 2. [NEW] 5/10/15/20년 멀티 백테스트 (전체 데이터 통합 뷰)
+    # 2. [NEW] 5/10/15/20년 멀티 백테스트 (계층형 컬럼 표)
     # ---------------------------------------------------------
     with sub_tab2:
-        st.write("##### ⏳ 과거 4개 구간(5/10/15/20년) 전체 데이터 검증")
-        st.caption("모든 지표(수익/MDD/승률/횟수)를 한 표에서 확인하세요. (표를 옆으로 밀어서 보세요)")
+        st.write("##### ⏳ 과거 4개 구간(5/10/15/20년) 상세 검증")
+        st.caption("대분류(지표) 하위에 기간별 데이터를 보여줍니다.")
         
         if st.button("🗓️ 역사적 구간 분석 시작", type="primary"):
             periods = [5, 10, 15, 20]
-            all_data = [] 
+            # 결과를 담을 딕셔너리 리스트 (나중에 MultiIndex DF로 변환)
+            data_list = []
             
             total_steps = len(PRESETS) * len(periods)
             p_bar = st.progress(0, text="멀티 백테스트 준비 중...")
@@ -402,8 +403,11 @@ with tab2:
                 t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
                 m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
                 
-                # 행 데이터 초기화
-                row = {"전략명": name, "티커": s_ticker}
+                # 전략 식별자 (인덱스로 사용)
+                strategy_idx = f"{name} ({s_ticker})"
+                
+                # 행 데이터 임시 저장소
+                row_data = {}
                 
                 for yr in periods:
                     step_count += 1
@@ -449,63 +453,57 @@ with tab2:
                                 atr_multiplier=float(p.get("atr_multiplier", 2.0))
                             )
                             
-                            # 실제 데이터 기간 확인 (상장일 부족 등 체크)
+                            # 실제 데이터 기간 확인
                             real_start = base['Date'].iloc[0].date()
                             days_diff = (today - real_start).days
                             years_avail = round(days_diff / 365, 1)
                             
                             suffix = ""
-                            if years_avail < (yr - 1): 
-                                suffix = "⚠️" # 데이터 부족 표시
+                            if years_avail < (yr - 0.5):
+                                suffix = f" ({years_avail}y)"
                             
-                            # 모든 지표 저장
-                            row[f"{yr}년 수익"] = f"{res.get('수익률 (%)', 0)}%{suffix}"
-                            row[f"{yr}년 MDD"] = f"{res.get('MDD (%)', 0)}%"
-                            row[f"{yr}년 승률"] = f"{res.get('승률 (%)', 0)}%"
-                            row[f"{yr}년 횟수"] = f"{res.get('총 매매 횟수', 0)}회"
+                            # 데이터 저장 (튜플 키 사용: (대분류, 소분류))
+                            row_data[('수익률', f"{yr}년")] = f"{res.get('수익률 (%)', 0)}%{suffix}"
+                            row_data[('MDD', f"{yr}년")] = f"{res.get('MDD (%)', 0)}%"
+                            row_data[('승률', f"{yr}년")] = f"{res.get('승률 (%)', 0)}%"
+                            row_data[('매매횟수', f"{yr}년")] = f"{res.get('총 매매 횟수', 0)}회"
                         
                         else:
-                            # 데이터 없음
-                            for k in ["수익", "MDD", "승률", "횟수"]: row[f"{yr}년 {k}"] = "-"
+                            for cat in ['수익률', 'MDD', '승률', '매매횟수']:
+                                row_data[(cat, f"{yr}년")] = "-"
                                 
                     except:
-                        # 에러 발생
-                        for k in ["수익", "MDD", "승률", "횟수"]: row[f"{yr}년 {k}"] = "Err"
+                        for cat in ['수익률', 'MDD', '승률', '매매횟수']:
+                            row_data[(cat, f"{yr}년")] = "Err"
 
-                all_data.append(row)
+                # 완성된 행 데이터를 리스트에 추가 (인덱스 정보 포함)
+                row_data[('전략', '이름')] = strategy_idx
+                data_list.append(row_data)
             
             p_bar.empty()
-            st.success("✅ 전체 지표 분석 완료!")
+            st.success("✅ 통합 분석 완료!")
             
-            if all_data:
-                df_all = pd.DataFrame(all_data)
+            if data_list:
+                # 1. DataFrame 생성
+                df_raw = pd.DataFrame(data_list)
                 
-                # 5년 수익률 기준 내림차순 정렬
-                if "5년 수익" in df_all.columns:
-                    try:
-                        df_all["sort_key"] = df_all["5년 수익"].str.split('%').str[0].astype(float)
-                        df_all = df_all.sort_values("sort_key", ascending=False).drop(columns=["sort_key"])
-                    except: pass
+                # 2. '전략' 컬럼을 인덱스로 설정
+                if ('전략', '이름') in df_raw.columns:
+                    df_raw.set_index(('전략', '이름'), inplace=True)
+                    df_raw.index.name = "전략명"
                 
-                # 컬럼 순서 재배치 (보기 좋게)
-                cols_ordered = ["전략명", "티커"]
-                for yr in periods:
-                    cols_ordered.extend([f"{yr}년 수익", f"{yr}년 MDD", f"{yr}년 승률", f"{yr}년 횟수"])
+                # 3. MultiIndex 컬럼 정렬 (수익률 -> MDD -> 승률 -> 매매횟수 순서 보장 위해 reindex)
+                desired_cols = []
+                for cat in ['수익률', 'MDD', '승률', '매매횟수']:
+                    for yr in periods:
+                        desired_cols.append((cat, f"{yr}년"))
                 
-                # 최종 데이터프레임
-                df_final = df_all[cols_ordered]
+                # 실제 데이터에 있는 컬럼만 추려서 정렬
+                final_cols = [c for c in desired_cols if c in df_raw.columns]
+                df_final = df_raw[final_cols]
                 
-                # 표시
-                st.dataframe(
-                    df_final, 
-                    use_container_width=True, 
-                    hide_index=True,
-                    column_config={
-                        "전략명": st.column_config.TextColumn("전략", width="medium"),
-                        "티커": st.column_config.TextColumn("티커", width="small")
-                    }
-                )
-                st.caption("※ ⚠️: 데이터 부족 (상장일이 설정 기간보다 짧음)")
+                # 4. Streamlit 표시
+                st.dataframe(df_final, use_container_width=True)
                 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
