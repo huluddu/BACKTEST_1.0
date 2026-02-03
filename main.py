@@ -381,18 +381,16 @@ with tab2:
                 st.warning("분석할 프리셋이 없습니다.")
 
 # ---------------------------------------------------------
-    # 2. [NEW] 5/10/15/20년 멀티 백테스트 (통합 뷰)
+    # 2. [NEW] 5/10/15/20년 멀티 백테스트 (깔끔한 표 버전)
     # ---------------------------------------------------------
     with sub_tab2:
-        st.write("##### ⏳ 과거 4개 구간(5/10/15/20년) 통합 리포트")
-        st.caption("수익률, MDD, 승률, 매매횟수를 한 표에서 비교합니다. (가로 스크롤을 이용하세요)")
-        
-        # 옵션: 너무 길어지면 수익률/MDD만 볼 수 있게 필터 제공
-        view_option = st.radio("표시 항목 선택", ["전체 보기 (수익+MDD+승률+횟수)", "핵심만 보기 (수익+MDD)"], horizontal=True)
+        st.write("##### ⏳ 과거 4개 구간(5/10/15/20년) 핵심 요약")
+        st.caption("각 기간별 **수익률 (최대낙폭 MDD)** 입니다. MDD가 낮고 수익률이 높은 것이 좋습니다.")
         
         if st.button("🗓️ 역사적 구간 분석 시작", type="primary"):
             periods = [5, 10, 15, 20]
-            all_results = []
+            summary_data = [] # 요약 표 (수익률 + MDD)
+            detail_data = []  # 상세 표 (승률, 횟수 포함)
             
             total_steps = len(PRESETS) * len(periods)
             p_bar = st.progress(0, text="멀티 백테스트 준비 중...")
@@ -405,8 +403,9 @@ with tab2:
                 t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
                 m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
                 
-                # 한 줄에 모든 정보를 담기 위한 딕셔너리
-                row = {"전략명": name, "티커": s_ticker}
+                # 행 데이터 초기화
+                row_summary = {"전략명": name, "티커": s_ticker}
+                row_detail = {"전략명": name, "티커": s_ticker}
                 
                 for yr in periods:
                     step_count += 1
@@ -459,61 +458,64 @@ with tab2:
                             
                             suffix = ""
                             if years_avail < (yr - 1): # 데이터 부족 시 표시
-                                suffix = f"({years_avail}y)"
+                                suffix = "⚠️"
                             
-                            # 데이터 채우기 (정렬을 위해 숫자로 저장하되 % 문자열은 나중에 처리 가능하지만, 여기선 보기 편하게 문자열로)
-                            row[f"{yr}년 수익"] = f"{res.get('수익률 (%)', 0)}%{suffix}"
-                            row[f"{yr}년 MDD"] = f"{res.get('MDD (%)', 0)}%"
-                            row[f"{yr}년 승률"] = f"{res.get('승률 (%)', 0)}%"
-                            row[f"{yr}년 횟수"] = f"{res.get('총 매매 횟수', 0)}회"
-                        else:
-                            row[f"{yr}년 수익"] = "-"
-                            row[f"{yr}년 MDD"] = "-"
-                            row[f"{yr}년 승률"] = "-"
-                            row[f"{yr}년 횟수"] = "-"
-                    except:
-                        row[f"{yr}년 수익"] = "Err"
-                        row[f"{yr}년 MDD"] = "Err"
-                        row[f"{yr}년 승률"] = "Err"
-                        row[f"{yr}년 횟수"] = "Err"
+                            ret = res.get('수익률 (%)', 0)
+                            mdd = res.get('MDD (%)', 0)
+                            win = res.get('승률 (%)', 0)
+                            cnt = res.get('총 매매 횟수', 0)
 
-                all_results.append(row)
+                            # 요약 표 데이터 (한 셀에 수익률과 MDD 병기)
+                            # 예: +120% (-15%)
+                            row_summary[f"{yr}년"] = f"{ret}% ({mdd}%) {suffix}"
+                            
+                            # 상세 표 데이터
+                            row_detail[f"{yr}년 수익"] = f"{ret}% {suffix}"
+                            row_detail[f"{yr}년 MDD"] = f"{mdd}%"
+                            row_detail[f"{yr}년 승률"] = f"{win}%"
+                            
+                        else:
+                            row_summary[f"{yr}년"] = "-"
+                            row_detail[f"{yr}년 수익"] = "-"
+                    except:
+                        row_summary[f"{yr}년"] = "Err"
+                        row_detail[f"{yr}년 수익"] = "Err"
+
+                summary_data.append(row_summary)
+                detail_data.append(row_detail)
             
             p_bar.empty()
             st.success("✅ 통합 분석 완료!")
             
-            if all_results:
-                df_all = pd.DataFrame(all_results)
+            # 1. 핵심 요약 표 출력
+            if summary_data:
+                df_sum = pd.DataFrame(summary_data)
                 
-                # 정렬 (5년 수익률 기준 내림차순 시도)
-                if "5년 수익" in df_all.columns:
-                    try:
-                        df_all["sort"] = df_all["5년 수익"].str.split('%').str[0].astype(float)
-                        df_all = df_all.sort_values("sort", ascending=False).drop(columns=["sort"])
-                    except: pass
+                # 5년 수익률 기준 정렬 (숫자만 추출해서 정렬)
+                try:
+                    df_sum["sort"] = df_sum["5년"].str.split('%').str[0].astype(float)
+                    df_sum = df_sum.sort_values("sort", ascending=False).drop(columns=["sort"])
+                except: pass
                 
-                # 보기 옵션에 따른 컬럼 필터링
-                cols_to_show = ["전략명", "티커"]
-                for yr in periods:
-                    cols_to_show.append(f"{yr}년 수익")
-                    cols_to_show.append(f"{yr}년 MDD")
-                    if "전체" in view_option:
-                        cols_to_show.append(f"{yr}년 승률")
-                        cols_to_show.append(f"{yr}년 횟수")
-                
-                # 최종 데이터프레임
-                df_final = df_all[cols_to_show]
-                
-                # 스타일링 (하이라이트)
                 st.dataframe(
-                    df_final, 
+                    df_sum, 
                     use_container_width=True, 
                     hide_index=True,
                     column_config={
                         "전략명": st.column_config.TextColumn("전략", width="medium"),
                         "티커": st.column_config.TextColumn("티커", width="small"),
+                        "5년": st.column_config.TextColumn("5년 (수익/MDD)"),
+                        "10년": st.column_config.TextColumn("10년 (수익/MDD)"),
+                        "15년": st.column_config.TextColumn("15년 (수익/MDD)"),
+                        "20년": st.column_config.TextColumn("20년 (수익/MDD)"),
                     }
                 )
+                st.caption("※ ⚠️ 표시는 해당 기간만큼의 데이터가 없어 '상장 이후 최대 기간'으로 분석된 경우입니다.")
+
+            # 2. 상세 데이터 (확장 가능)
+            with st.expander("🔎 상세 데이터 보기 (승률 포함)"):
+                if detail_data:
+                    st.dataframe(pd.DataFrame(detail_data), use_container_width=True, hide_index=True)
                 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
@@ -1100,6 +1102,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
