@@ -281,132 +281,233 @@ with tab1:
                                 st.session_state.use_bollinger, st.session_state.bb_period, st.session_state.bb_std, st.session_state.bb_entry_type, st.session_state.bb_exit_type)
         else: st.error("데이터 로딩 실패")
 
+# --- tab2 전체 교체 ---
 with tab2:
-    st.markdown("### 📚 전략 일괄 진단 대시보드")
+    st.markdown("### 📚 전략 일괄 진단 & 기간별 스트레스 테스트")
     
-    # 백테스트 실행 여부 체크박스
-    run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기 (체크 시 속도가 느려집니다)", value=True)
-    
-    if st.button("🚀 모든 프리셋 분석 시작", type="primary"):
-        rows = []
-        progress_text = "전략 분석 중..."
-        my_bar = st.progress(0, text=progress_text)
-        total_presets = len(PRESETS)
-        
-        for i, (name, p) in enumerate(PRESETS.items()):
-            my_bar.progress(int((i / total_presets) * 100), text=f"분석 중: {name}")
-            
-            s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
-            t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
-            m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
-            
-            ma_pool = [
-                int(p.get("ma_buy", 50)), 
-                int(p.get("ma_sell", 10)),
-                int(p.get("ma_compare_short", 0) or 0),
-                int(p.get("ma_compare_long", 0) or 0)
-            ]
-            
-            base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
-                s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
-                int(p.get("market_ma_period", 200))
-            )
-            
-            if base is not None and not base.empty:
-                sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
-                
-                # 기본 정보
-                row_data = {
-                    "전략명": name,
-                    "티커": s_ticker,
-                    "현재상태": sig_res["label"],
-                    "최근매수": sig_res["last_buy"],
-                    "보유여부": "❓ 미확인" # 기본값
-                }
+    # 탭을 나누어 기능 분리
+    sub_tab1, sub_tab2 = st.tabs(["🚀 현재 설정 기간 분석", "🗓️ 5/10/15/20년 역사적 분석"])
 
-                if run_full_backtest:
-                    bt_res = backtest_fast(
-                        base, x_sig, x_trd, ma_dict,
-                        int(p.get("ma_buy", 50)), int(p.get("offset_ma_buy", 0)),
-                        int(p.get("ma_sell", 10)), int(p.get("offset_ma_sell", 0)),
-                        int(p.get("offset_cl_buy", 0)), int(p.get("offset_cl_sell", 0)),
-                        int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0),
-                        int(p.get("offset_compare_short", 0)), int(p.get("offset_compare_long", 0)),
-                        5000000, 
-                        float(p.get("stop_loss_pct", 0.0)), float(p.get("take_profit_pct", 0.0)),
-                        str(p.get("strategy_behavior", "1. 포지션 없으면 매수 / 보유 중이면 매도")),
-                        int(p.get("min_hold_days", 0)),
-                        float(p.get("fee_bps", 25)), float(p.get("slip_bps", 1)),
-                        bool(p.get("use_trend_in_buy", True)), bool(p.get("use_trend_in_sell", False)),
-                        str(p.get("buy_operator", ">")), str(p.get("sell_operator", "<")),
-                        use_rsi_filter=bool(p.get("use_rsi_filter", False)),
-                        rsi_period=int(p.get("rsi_period", 14)), rsi_min=30, rsi_max=int(p.get("rsi_max", 70)),
-                        use_market_filter=bool(p.get("use_market_filter", False)),
-                        x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
-                        use_bollinger=bool(p.get("use_bollinger", False)),
-                        bb_period=int(p.get("bb_period", 20)), bb_std=float(p.get("bb_std", 2.0)),
-                        bb_entry_type=str(p.get("bb_entry_type", "")), bb_exit_type=str(p.get("bb_exit_type", "")),
-                        use_atr_stop=bool(p.get("use_atr_stop", False)),
-                        atr_multiplier=float(p.get("atr_multiplier", 2.0))
-                    )
+    # ---------------------------------------------------------
+    # 1. 기존 기능 (사이드바 기간 기준)
+    # ---------------------------------------------------------
+    with sub_tab1:
+        st.info(f"사이드바에 설정된 기간 (**{start_date} ~ {end_date}**)을 기준으로 분석합니다.")
+        run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기", value=True, key="chk_basic_bt")
+        
+        if st.button("🚀 분석 시작 (현재 설정)", type="primary"):
+            rows = []
+            progress_text = "전략 분석 중..."
+            my_bar = st.progress(0, text=progress_text)
+            total_presets = len(PRESETS)
+            
+            for i, (name, p) in enumerate(PRESETS.items()):
+                my_bar.progress(int((i / total_presets) * 100), text=f"분석 중: {name}")
+                
+                s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
+                t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
+                m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
+                
+                ma_pool = [
+                    int(p.get("ma_buy", 50)), int(p.get("ma_sell", 10)),
+                    int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0)
+                ]
+                
+                base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
+                    s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
+                    int(p.get("market_ma_period", 200))
+                )
+                
+                if base is not None and not base.empty:
+                    sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
                     
-                    # [NEW] 보유 여부 판단 로직
-                    # 매매 로그가 있으면 마지막 신호를 확인, 없으면 미보유
-                    is_holding = False
-                    trades = bt_res.get('매매 로그', [])
-                    if trades:
-                        last_action = trades[-1].get('신호')
-                        if last_action == 'BUY':
-                            is_holding = True
-                    
-                    row_data.update({
-                        "보유여부": "🟢 보유중" if is_holding else "⚪ 미보유",
-                        "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
-                        "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
-                        "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
-                        "Profit Factor": bt_res.get('Profit Factor', 0),
-                        "매매횟수": bt_res.get('총 매매 횟수', 0)
-                    })
+                    row_data = {
+                        "전략명": name, "티커": s_ticker,
+                        "현재상태": sig_res["label"], "최근매수": sig_res["last_buy"]
+                    }
+
+                    if run_full_backtest:
+                        bt_res = backtest_fast(
+                            base, x_sig, x_trd, ma_dict,
+                            int(p.get("ma_buy", 50)), int(p.get("offset_ma_buy", 0)),
+                            int(p.get("ma_sell", 10)), int(p.get("offset_ma_sell", 0)),
+                            int(p.get("offset_cl_buy", 0)), int(p.get("offset_cl_sell", 0)),
+                            int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0),
+                            int(p.get("offset_compare_short", 0)), int(p.get("offset_compare_long", 0)),
+                            5000000, 
+                            float(p.get("stop_loss_pct", 0.0)), float(p.get("take_profit_pct", 0.0)),
+                            str(p.get("strategy_behavior", "1")),
+                            int(p.get("min_hold_days", 0)),
+                            float(p.get("fee_bps", 25)), float(p.get("slip_bps", 1)),
+                            bool(p.get("use_trend_in_buy", True)), bool(p.get("use_trend_in_sell", False)),
+                            str(p.get("buy_operator", ">")), str(p.get("sell_operator", "<")),
+                            use_rsi_filter=bool(p.get("use_rsi_filter", False)),
+                            rsi_period=int(p.get("rsi_period", 14)), rsi_min=30, rsi_max=int(p.get("rsi_max", 70)),
+                            use_market_filter=bool(p.get("use_market_filter", False)),
+                            x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
+                            use_bollinger=bool(p.get("use_bollinger", False)),
+                            bb_period=int(p.get("bb_period", 20)), bb_std=float(p.get("bb_std", 2.0)),
+                            bb_entry_type=str(p.get("bb_entry_type", "")), bb_exit_type=str(p.get("bb_exit_type", "")),
+                            use_atr_stop=bool(p.get("use_atr_stop", False)),
+                            atr_multiplier=float(p.get("atr_multiplier", 2.0))
+                        )
+                        
+                        row_data.update({
+                            "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
+                            "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
+                            "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
+                            "매매횟수": bt_res.get('총 매매 횟수', 0)
+                        })
+                    else:
+                        row_data.update({"총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "매매횟수": "-"})
+                    rows.append(row_data)
                 else:
-                    # 백테스트 안 할 때는 시그널 상태로 추정 (Buy 신호면 보유 가능성 높음)
-                    temp_hold = "🟢 매수신호" if "매수" in sig_res["label"] else "⚪ -"
-                    row_data.update({"보유여부": temp_hold, "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"})
+                    rows.append({"전략명": name, "티커": s_ticker, "현재상태": "데이터오류"})
+
+            my_bar.empty()
+            
+            if rows:
+                df_result = pd.DataFrame(rows)
+                # 정렬
+                if run_full_backtest and "총 수익률(%)" in df_result.columns:
+                    try:
+                        df_result["sort"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
+                        df_result = df_result.sort_values("sort", ascending=False).drop(columns=["sort"])
+                    except: pass
                 
-                rows.append(row_data)
+                st.success("✅ 분석 완료!")
+                st.dataframe(df_result, use_container_width=True, hide_index=True)
             else:
-                rows.append({"전략명": name, "티커": s_ticker, "보유여부": "❌ 에러", "현재상태": "데이터오류", "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"})
+                st.warning("분석할 프리셋이 없습니다.")
 
-        my_bar.empty()
+    # ---------------------------------------------------------
+    # 2. [NEW] 5/10/15/20년 멀티 백테스트
+    # ---------------------------------------------------------
+    with sub_tab2:
+        st.write("##### ⏳ 과거 4개 구간(5/10/15/20년)에 대해 전략을 검증합니다.")
+        st.caption("※ 데이터가 부족한 종목(예: 상장 3년차)은 '상장일 이후 최대 기간'으로 계산됩니다.")
         
-        if rows:
-            df_result = pd.DataFrame(rows)
+        if st.button("🗓️ 역사적 구간 분석 시작", type="primary"):
+            periods = [5, 10, 15, 20]
+            results_return = []
+            results_mdd = []
+            results_win = []
+            results_count = []
             
-            # [NEW] 컬럼 순서 재배치 (보유여부를 앞쪽으로)
-            cols_order = ["전략명", "티커", "보유여부", "현재상태", "총 수익률(%)", "MDD(%)", "승률(%)", "매매횟수", "최근매수"]
-            # 백테스트 안 했거나 컬럼이 없는 경우를 대비해 교집합만 사용
-            final_cols = [c for c in cols_order if c in df_result.columns]
-            df_result = df_result[final_cols]
+            total_steps = len(PRESETS) * len(periods)
+            p_bar = st.progress(0, text="멀티 백테스트 준비 중...")
+            step_count = 0
+            
+            today = datetime.date.today()
+            
+            for name, p in PRESETS.items():
+                s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
+                t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
+                m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
+                
+                # 결과 행 초기화
+                row_ret = {"전략명": name, "티커": s_ticker}
+                row_mdd = {"전략명": name, "티커": s_ticker}
+                row_win = {"전략명": name, "티커": s_ticker}
+                row_cnt = {"전략명": name, "티커": s_ticker}
+                
+                for yr in periods:
+                    step_count += 1
+                    p_bar.progress(int((step_count / total_steps) * 100), text=f"[{name}] {yr}년 데이터 분석 중...")
+                    
+                    # 기간 설정
+                    start_d = today - datetime.timedelta(days=365 * yr)
+                    
+                    # 데이터 로드 및 백테스트
+                    ma_pool = [
+                        int(p.get("ma_buy", 50)), int(p.get("ma_sell", 10)),
+                        int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0)
+                    ]
+                    
+                    try:
+                        base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
+                            s_ticker, t_ticker, m_ticker, start_d, today, ma_pool, 
+                            int(p.get("market_ma_period", 200))
+                        )
+                        
+                        if base is not None and not base.empty:
+                            res = backtest_fast(
+                                base, x_sig, x_trd, ma_dict,
+                                int(p.get("ma_buy", 50)), int(p.get("offset_ma_buy", 0)),
+                                int(p.get("ma_sell", 10)), int(p.get("offset_ma_sell", 0)),
+                                int(p.get("offset_cl_buy", 0)), int(p.get("offset_cl_sell", 0)),
+                                int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0),
+                                int(p.get("offset_compare_short", 0)), int(p.get("offset_compare_long", 0)),
+                                5000000, 
+                                float(p.get("stop_loss_pct", 0.0)), float(p.get("take_profit_pct", 0.0)),
+                                str(p.get("strategy_behavior", "1")), int(p.get("min_hold_days", 0)),
+                                float(p.get("fee_bps", 25)), float(p.get("slip_bps", 1)),
+                                bool(p.get("use_trend_in_buy", True)), bool(p.get("use_trend_in_sell", False)),
+                                str(p.get("buy_operator", ">")), str(p.get("sell_operator", "<")),
+                                use_rsi_filter=bool(p.get("use_rsi_filter", False)),
+                                rsi_period=int(p.get("rsi_period", 14)), rsi_min=30, rsi_max=int(p.get("rsi_max", 70)),
+                                use_market_filter=bool(p.get("use_market_filter", False)),
+                                x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
+                                use_bollinger=bool(p.get("use_bollinger", False)),
+                                bb_period=int(p.get("bb_period", 20)), bb_std=float(p.get("bb_std", 2.0)),
+                                bb_entry_type=str(p.get("bb_entry_type", "")), bb_exit_type=str(p.get("bb_exit_type", "")),
+                                use_atr_stop=bool(p.get("use_atr_stop", False)),
+                                atr_multiplier=float(p.get("atr_multiplier", 2.0))
+                            )
+                            
+                            # 실제 데이터 기간 확인 (상장일이 짧을 경우)
+                            real_start = base['Date'].iloc[0].date()
+                            days_diff = (today - real_start).days
+                            years_avail = round(days_diff / 365, 1)
+                            
+                            suffix = ""
+                            if years_avail < (yr - 1): # 요청 기간보다 실제 데이터가 1년 이상 짧으면 표시
+                                suffix = f" ({years_avail}년)"
+                            
+                            row_ret[f"{yr}년"] = f"{res.get('수익률 (%)', 0)}%{suffix}"
+                            row_mdd[f"{yr}년"] = f"{res.get('MDD (%)', 0)}%{suffix}"
+                            row_win[f"{yr}년"] = f"{res.get('승률 (%)', 0)}%{suffix}"
+                            row_cnt[f"{yr}년"] = f"{res.get('총 매매 횟수', 0)}회{suffix}"
+                        else:
+                            row_ret[f"{yr}년"] = "N/A"
+                            row_mdd[f"{yr}년"] = "N/A"
+                            row_win[f"{yr}년"] = "N/A"
+                            row_cnt[f"{yr}년"] = "N/A"
+                    except:
+                        row_ret[f"{yr}년"] = "Err"
+                        row_mdd[f"{yr}년"] = "Err"
+                        row_win[f"{yr}년"] = "Err"
+                        row_cnt[f"{yr}년"] = "Err"
 
-            if run_full_backtest:
-                try:
-                    df_result["sort_key"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
-                    df_result = df_result.sort_values("sort_key", ascending=False).drop(columns=["sort_key"])
-                except: pass
+                results_return.append(row_ret)
+                results_mdd.append(row_mdd)
+                results_win.append(row_win)
+                results_count.append(row_cnt)
             
-            st.success("✅ 분석 완료!")
+            p_bar.empty()
+            st.success("✅ 역사적 분석 완료!")
             
-            cols_config = {
-                "전략명": st.column_config.TextColumn("전략 이름"),
-                "보유여부": st.column_config.TextColumn("보유 상태", help="백테스트 기준 현재 보유 중인지 여부"),
-                "현재상태": st.column_config.TextColumn("오늘의 시그널", help="오늘 발생한 매수/매도 신호"),
-                "최근매수": st.column_config.TextColumn("최근 매수일")
-            }
-            if run_full_backtest:
-                cols_config.update({"총 수익률(%)": st.column_config.TextColumn("수익률"), "MDD(%)": st.column_config.TextColumn("MDD")})
+            # 결과 표시 (탭으로 분리)
+            res_tabs = st.tabs(["💰 수익률(%)", "📉 MDD(%)", "🎯 승률(%)", "🔢 매매횟수"])
+            
+            def style_metric_df(df_in, metric_type):
+                df = pd.DataFrame(df_in)
+                # 정렬 (5년 수익률 기준 내림차순 등)
+                if "5년" in df.columns and metric_type == "ret":
+                    try:
+                        df["sort"] = df["5년"].str.split('%').str[0].astype(float)
+                        df = df.sort_values("sort", ascending=False).drop(columns=["sort"])
+                    except: pass
+                return df
 
-            st.dataframe(df_result, use_container_width=True, column_config=cols_config, hide_index=True)
-        else:
-            st.warning("분석할 프리셋이 없습니다.")
+            with res_tabs[0]:
+                st.dataframe(style_metric_df(results_return, "ret"), use_container_width=True, hide_index=True)
+            with res_tabs[1]:
+                st.dataframe(style_metric_df(results_mdd, "mdd"), use_container_width=True, hide_index=True)
+            with res_tabs[2]:
+                st.dataframe(style_metric_df(results_win, "win"), use_container_width=True, hide_index=True)
+            with res_tabs[3]:
+                st.dataframe(style_metric_df(results_count, "cnt"), use_container_width=True, hide_index=True)
 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
@@ -993,6 +1094,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
