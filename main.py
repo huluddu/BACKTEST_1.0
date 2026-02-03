@@ -291,19 +291,15 @@ with tab2:
         rows = []
         progress_text = "전략 분석 중..."
         my_bar = st.progress(0, text=progress_text)
-        
         total_presets = len(PRESETS)
         
         for i, (name, p) in enumerate(PRESETS.items()):
-            # 진행률 표시
             my_bar.progress(int((i / total_presets) * 100), text=f"분석 중: {name}")
             
-            # 1. 기본 정보 추출
             s_ticker = p.get("signal_ticker", p.get("signal_ticker_input", "SOXL"))
             t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
             m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
             
-            # 2. 데이터 준비
             ma_pool = [
                 int(p.get("ma_buy", 50)), 
                 int(p.get("ma_sell", 10)),
@@ -311,26 +307,23 @@ with tab2:
                 int(p.get("ma_compare_long", 0) or 0)
             ]
             
-            # 데이터 로드
             base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
                 s_ticker, t_ticker, m_ticker, start_date, end_date, ma_pool, 
                 int(p.get("market_ma_period", 200))
             )
             
             if base is not None and not base.empty:
-                # -----------------------------------------------------------
-                # A. 시그널 상태 확인 (여기서 '매수/매도 중복' 라벨을 가져옵니다)
-                # -----------------------------------------------------------
                 sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
                 
+                # 기본 정보
                 row_data = {
                     "전략명": name,
                     "티커": s_ticker,
-                    "현재상태": sig_res["label"], # <-- strategy.py에서 만든 라벨이 여기에 들어갑니다
-                    "최근매수": sig_res["last_buy"]
+                    "현재상태": sig_res["label"],
+                    "최근매수": sig_res["last_buy"],
+                    "보유여부": "❓ 미확인" # 기본값
                 }
 
-                # B. 백테스트 실행 (체크박스가 켜져 있을 때만!)
                 if run_full_backtest:
                     bt_res = backtest_fast(
                         base, x_sig, x_trd, ma_dict,
@@ -356,8 +349,18 @@ with tab2:
                         use_atr_stop=bool(p.get("use_atr_stop", False)),
                         atr_multiplier=float(p.get("atr_multiplier", 2.0))
                     )
-                    # 결과 추가
+                    
+                    # [NEW] 보유 여부 판단 로직
+                    # 매매 로그가 있으면 마지막 신호를 확인, 없으면 미보유
+                    is_holding = False
+                    trades = bt_res.get('매매 로그', [])
+                    if trades:
+                        last_action = trades[-1].get('신호')
+                        if last_action == 'BUY':
+                            is_holding = True
+                    
                     row_data.update({
+                        "보유여부": "🟢 보유중" if is_holding else "⚪ 미보유",
                         "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
                         "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
                         "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
@@ -365,24 +368,25 @@ with tab2:
                         "매매횟수": bt_res.get('총 매매 횟수', 0)
                     })
                 else:
-                    # 백테스트 안 할 때는 빈칸(-) 처리
-                    row_data.update({
-                        "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"
-                    })
+                    # 백테스트 안 할 때는 시그널 상태로 추정 (Buy 신호면 보유 가능성 높음)
+                    temp_hold = "🟢 매수신호" if "매수" in sig_res["label"] else "⚪ -"
+                    row_data.update({"보유여부": temp_hold, "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-"})
                 
                 rows.append(row_data)
             else:
-                rows.append({
-                    "전략명": name, "티커": s_ticker, "현재상태": "데이터오류",
-                    "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"
-                })
+                rows.append({"전략명": name, "티커": s_ticker, "보유여부": "❌ 에러", "현재상태": "데이터오류", "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "Profit Factor": "-", "매매횟수": "-", "최근매수": "-"})
 
         my_bar.empty()
         
         if rows:
             df_result = pd.DataFrame(rows)
             
-            # 정렬 로직 (백테스트 결과가 있을 때만 수익률 순 정렬)
+            # [NEW] 컬럼 순서 재배치 (보유여부를 앞쪽으로)
+            cols_order = ["전략명", "티커", "보유여부", "현재상태", "총 수익률(%)", "MDD(%)", "승률(%)", "매매횟수", "최근매수"]
+            # 백테스트 안 했거나 컬럼이 없는 경우를 대비해 교집합만 사용
+            final_cols = [c for c in cols_order if c in df_result.columns]
+            df_result = df_result[final_cols]
+
             if run_full_backtest:
                 try:
                     df_result["sort_key"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
@@ -391,18 +395,14 @@ with tab2:
             
             st.success("✅ 분석 완료!")
             
-            # 컬럼 설정
             cols_config = {
                 "전략명": st.column_config.TextColumn("전략 이름"),
-                "현재상태": st.column_config.TextColumn("시그널", help="⚠️ 표시가 뜨면 매수/매도 조건이 겹친 것입니다."),
+                "보유여부": st.column_config.TextColumn("보유 상태", help="백테스트 기준 현재 보유 중인지 여부"),
+                "현재상태": st.column_config.TextColumn("오늘의 시그널", help="오늘 발생한 매수/매도 신호"),
                 "최근매수": st.column_config.TextColumn("최근 매수일")
             }
-            
             if run_full_backtest:
-                cols_config.update({
-                    "총 수익률(%)": st.column_config.TextColumn("수익률"),
-                    "MDD(%)": st.column_config.TextColumn("MDD"),
-                })
+                cols_config.update({"총 수익률(%)": st.column_config.TextColumn("수익률"), "MDD(%)": st.column_config.TextColumn("MDD")})
 
             st.dataframe(df_result, use_container_width=True, column_config=cols_config, hide_index=True)
         else:
@@ -993,6 +993,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
