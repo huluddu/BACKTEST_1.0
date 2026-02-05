@@ -53,6 +53,7 @@ DEFAULT_PRESETS = {
     "BITX-TQQQ 안전": {"signal_ticker": "BITX", "trade_ticker": "TQQQ", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 10, "ma_buy": 20, "offset_cl_sell": 50, "sell_operator": ">", "offset_ma_sell": 1, "ma_sell": 5, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 50, "ma_compare_short": 5, "offset_compare_long": 1, "ma_compare_long": 50, "stop_loss_pct": 0.0, "take_profit_pct": 15.0},
     "TQQQ 대박스": {"signal_ticker": "TQQQ", "trade_ticker": "TQQQ", "offset_cl_buy": 20, "buy_operator": ">", "offset_ma_buy": 1, "ma_buy": 10, "offset_cl_sell": 1, "sell_operator": "<", "offset_ma_sell": 50, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 50, "ma_compare_short": 20, "offset_compare_long": 50, "ma_compare_long": 50, "stop_loss_pct": 0.0, "take_profit_pct": 25.0},
     "TQQQ 초안전": {"signal_ticker": "TQQQ", "trade_ticker": "TQQQ", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 1, "ma_buy": 120, "offset_cl_sell": 20, "sell_operator": "<", "offset_ma_sell": 1, "ma_sell": 10, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 1, "ma_compare_short": 1, "offset_compare_long": 5, "ma_compare_long": 120, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
+    "ACE미30년국채": {"signal_ticker": "453850", "trade_ticker": "453850", "offset_cl_buy": 10, "buy_operator": ">", "offset_ma_buy": 10, "ma_buy": 60, "offset_cl_sell": 20, "sell_operator": ">", "offset_ma_sell": 50, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 5, "ma_compare_short": 120, "offset_compare_long": 1, "ma_compare_long": 10, "stop_loss_pct": 25.0, "take_profit_pct": 15.0},
     "465580 ACE미국빅테크TOP7PLUS": {"signal_ticker": "465580", "trade_ticker": "465580", "offset_cl_buy": 2, "buy_operator": ">", "offset_ma_buy": 2, "ma_buy": 5, "offset_cl_sell": 2, "sell_operator": "<", "offset_ma_sell": 2, "ma_sell": 25, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 6, "ma_compare_short": 10, "offset_compare_long": 2, "ma_compare_long": 10, "stop_loss_pct": 0.0, "take_profit_pct": 10.0},
     "390390 KODEX미국반도체": {"signal_ticker": "390390", "trade_ticker": "390390", "offset_cl_buy": 6, "buy_operator": "<", "offset_ma_buy": 2, "ma_buy": 5, "offset_cl_sell": 26, "sell_operator": ">", "offset_ma_sell": 2, "ma_sell": 20, "use_trend_in_buy": False, "use_trend_in_sell": True, "offset_compare_short": 6, "ma_compare_short": 25, "offset_compare_long": 2, "ma_compare_long": 25, "stop_loss_pct": 0.0, "take_profit_pct": 10.0},
     "483280 AITOP10커브드콜": {"signal_ticker": "483280", "trade_ticker": "483280", "offset_cl_buy": 26, "buy_operator": ">", "offset_ma_buy": 26, "ma_buy": 20, "offset_cl_sell": 26, "sell_operator": ">", "offset_ma_sell": 6, "ma_sell": 20, "use_trend_in_buy": True, "use_trend_in_sell": True, "offset_compare_short": 2, "ma_compare_short": 20, "offset_compare_long": 16, "ma_compare_long": 5, "stop_loss_pct": 0.0, "take_profit_pct": 0.0},
@@ -246,47 +247,27 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
 # ==========================================
 tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털"])
 
-# --- 탭 0: 기업 정보 (KeyError 방지 적용) ---
 with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
     if trade_ticker:
-        # 데이터 가져오기
         fd = get_fundamental_info(trade_ticker)
-        
-        # fd가 비어있거나 None일 경우 방어
-        if not fd:
-            fd = {}
-
         c1, c2, c3, c4 = st.columns(4)
-        # .get("키", 기본값) 사용으로 에러 원천 차단
-        c1.metric("기업명", fd.get("Name", trade_ticker))
-        c2.metric("섹터", fd.get("Sector", "N/A"))
-        c3.metric("시가총액", f"{fd.get('MarketCap', 0):,}")
-        c4.metric("Beta (변동성)", f"{fd.get('Beta', 0.0):.2f}")
+        c1.metric("기업명", fd["Name"])
+        c2.metric("섹터", fd["Sector"])
+        c3.metric("시가총액", f"{fd['MarketCap']:,}")
+        c4.metric("Beta (변동성)", f"{fd['Beta']:.2f}")
         
         st.divider()
         c5, c6, c7, c8 = st.columns(4)
-        
-        # PER, PBR 등이 없으면 N/A로 표시
-        per_val = fd.get('PER') or fd.get('TrailingPE') or 0
-        pbr_val = fd.get('PBR') or 0
-        roe_val = fd.get('ROE') or 0
-        net_inc = fd.get('NetIncome') or 0
+        c5.metric("PER (주가수익비율)", f"{fd['PER']:.2f}" if fd['PER'] else "N/A")
+        c6.metric("PBR (주가순자산비율)", f"{fd['PBR']:.2f}" if fd['PBR'] else "N/A")
+        c7.metric("ROE (자기자본이익률)", f"{fd['ROE'] * 100:.2f}%" if fd['ROE'] else "N/A")
+        c8.metric("당기순이익", f"{fd['NetIncome']:,}")
 
-        c5.metric("PER (주가수익비율)", f"{per_val:.2f}" if per_val else "N/A")
-        c6.metric("PBR (주가순자산비율)", f"{pbr_val:.2f}" if pbr_val else "N/A")
-        c7.metric("ROE (자기자본이익률)", f"{roe_val * 100:.2f}%" if roe_val else "N/A")
-        c8.metric("당기순이익", f"{net_inc:,}" if net_inc else "N/A")
-
-        st.info(f"ℹ️ **기업 개요**: {fd.get('Description', '정보 없음')}")
-        
-        # 웹사이트 링크 (있을 경우에만)
-        if fd.get("Website"):
-            st.markdown(f"🌐 [공식 홈페이지]({fd['Website']})")
-            
+        st.info(f"ℹ️ **기업 개요**: {fd['Description']}")
     else:
         st.warning("티커를 입력해주세요.")
-        
+
 with tab1:
     if st.button("📌 오늘의 매매 시그널 확인", type="primary", use_container_width=True):
         base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(
@@ -1112,14 +1093,4 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
-
-
-
-
-
-
-
-
-
-
 
