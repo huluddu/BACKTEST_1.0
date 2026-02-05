@@ -3,52 +3,48 @@ import pandas as pd
 import yfinance as yf
 import datetime
 
+# 빈 데이터프레임 형틀 (에러 방지용)
+EMPTY_DF = pd.DataFrame(columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
+
 @st.cache_data(show_spinner=False, ttl=600)
 def get_data(ticker, start_date, end_date):
     if not ticker:
-        return pd.DataFrame()
+        return EMPTY_DF
 
     ticker = ticker.strip().upper()
     
-    # 1. 시도할 티커 후보군 만들기
+    # 후보군 생성 (국장 .KS/.KQ 시도)
     candidates = []
-    
-    # 만약 사용자가 '005930' 처럼 숫자만 넣었다면?
     if ticker.isdigit():
-        candidates.append(f"{ticker}.KS")  # 1순위: 코스피 시도
-        candidates.append(f"{ticker}.KQ")  # 2순위: 코스닥 시도
+        candidates.append(f"{ticker}.KS")
+        candidates.append(f"{ticker}.KQ")
     else:
-        # 이미 .KS나 .KQ를 붙였거나 미국 주식이면 그대로 사용
         candidates.append(ticker)
-        # 혹시 실수로 .KS를 안 붙였을 미국 티커 등을 위해 원본도 유지
 
     df = pd.DataFrame()
 
-    # 2. 후보군 순회하며 데이터 요청 (야후 파이낸스 강제 사용)
     for code in candidates:
         try:
-            # yfinance 다운로드
+            # yfinance 데이터 요청
             temp_df = yf.download(code, start=start_date, end=end_date, progress=False, auto_adjust=True)
             
-            # 멀티인덱스 컬럼 버그 해결 (Price, Ticker) -> Price
+            # MultiIndex 컬럼 해결
             if isinstance(temp_df.columns, pd.MultiIndex):
                 temp_df.columns = temp_df.columns.get_level_values(0)
 
-            # 데이터가 비어있지 않고, 행 개수가 충분하면 성공으로 간주
             if not temp_df.empty and len(temp_df) > 5:
                 df = temp_df
-                break # 성공했으니 반복문 탈출
-        except Exception as e:
+                break
+        except Exception:
             continue
 
-    # 3. 데이터가 여전히 없으면 빈 DF 반환
     if df.empty:
-        return pd.DataFrame()
+        return EMPTY_DF # [핵심] 그냥 빈 DF가 아니라 컬럼이 있는 빈 DF 반환
 
-    # 4. 데이터 표준화 (이름 변경 등)
+    # 데이터 표준화
     df = df.reset_index()
     
-    # 날짜 컬럼 통일
+    # 날짜 컬럼 보정
     col_map = {c.lower(): c for c in df.columns}
     if 'date' in col_map:
         df.rename(columns={col_map['date']: 'Date'}, inplace=True)
@@ -57,16 +53,14 @@ def get_data(ticker, start_date, end_date):
     else:
         df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
 
-    # 필수 컬럼 확보
+    # 필수 컬럼 보정
     required = ['Open', 'High', 'Low', 'Close']
     for req in required:
-        # 대소문자 매칭 (open -> Open)
         for col in df.columns:
             if col.lower() == req.lower():
                 df.rename(columns={col: req}, inplace=True)
                 break
     
-    # 없는 컬럼은 Close로 채움
     if 'Close' in df.columns:
         for req in required:
             if req not in df.columns:
@@ -77,23 +71,25 @@ def get_data(ticker, start_date, end_date):
 
     try:
         df['Date'] = pd.to_datetime(df['Date'])
+        # 날짜가 없으면 에러 처리
+        if df['Date'].isna().all():
+            return EMPTY_DF
+            
         df = df.sort_values('Date').reset_index(drop=True)
         return df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
     except:
-        return pd.DataFrame()
+        return EMPTY_DF
 
-# ---------------------------------------------------------
-# 기업 기본 정보 (야후 파이낸스 전용)
-# ---------------------------------------------------------
+# 기업 정보 (이전과 동일, 유지)
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_fundamental_info(ticker):
     default = {
-        "Name": ticker, "Symbol": ticker, "Sector": "-", "Industry": "-", 
+        "Name": ticker, "Symbol": ticker, "Sector": "N/A", "Industry": "N/A", 
         "MarketCap": 0, "Beta": 0.0, "Summary": "정보 없음", "Website": "", 
-        "ForwardPE": 0, "TrailingPE": 0, "DividendYield": 0
+        "ForwardPE": 0, "TrailingPE": 0, "DividendYield": 0,
+        "PER": 0, "PBR": 0, "ROE": 0, "NetIncome": 0, "Description": ""
     }
     
-    # 숫자만 들어오면 .KS(코스피)로 가정하고 시도
     target_ticker = ticker
     if ticker.isdigit():
         target_ticker = f"{ticker}.KS"
@@ -114,7 +110,12 @@ def get_fundamental_info(ticker):
             "Website": info.get("website", ""),
             "ForwardPE": info.get("forwardPE", 0),
             "TrailingPE": info.get("trailingPE", 0),
-            "DividendYield": info.get("dividendYield", 0)
+            "DividendYield": info.get("dividendYield", 0),
+            "PER": info.get("trailingPE", 0),
+            "PBR": info.get("priceToBook", 0),
+            "ROE": info.get("returnOnEquity", 0),
+            "NetIncome": info.get("netIncomeToCommon", 0),
+            "Description": info.get("longBusinessSummary", "")
         }
     except:
         return default
