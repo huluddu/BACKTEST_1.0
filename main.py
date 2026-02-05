@@ -282,17 +282,18 @@ with tab1:
         else: st.error("데이터 로딩 실패")
 
 # --- tab2 전체 교체 ---
+# --- tab2 전체 교체 ---
 with tab2:
     st.markdown("### 📚 전략 일괄 진단 & 기간별 스트레스 테스트")
     
-    # 탭을 나누어 기능 분리
-    sub_tab1, sub_tab2 = st.tabs(["🚀 현재 설정 기간 분석", "🗓️ 5/10/15/20년 역사적 분석"])
+    # 탭 분리: 현재 상태 점검 vs 역사적 검증
+    sub_tab1, sub_tab2 = st.tabs(["🚀 현재 설정 분석 (보유종목 확인)", "🗓️ 5/10/15/20년 상세 검증"])
 
     # ---------------------------------------------------------
-    # 1. 기존 기능 (사이드바 기간 기준)
+    # 1. 현재 설정 기준 분석 (보유여부 포함)
     # ---------------------------------------------------------
     with sub_tab1:
-        st.info(f"사이드바에 설정된 기간 (**{start_date} ~ {end_date}**)을 기준으로 분석합니다.")
+        st.info(f"사이드바에 설정된 기간 (**{start_date} ~ {end_date}**)을 기준으로 현재 상태를 진단합니다.")
         run_full_backtest = st.checkbox("🧪 백테스트 성과 분석 포함하기", value=True, key="chk_basic_bt")
         
         if st.button("🚀 분석 시작 (현재 설정)", type="primary"):
@@ -319,11 +320,14 @@ with tab2:
                 )
                 
                 if base is not None and not base.empty:
+                    # 시그널 요약
                     sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
                     
+                    # 기본 데이터
                     row_data = {
                         "전략명": name, "티커": s_ticker,
-                        "현재상태": sig_res["label"], "최근매수": sig_res["last_buy"]
+                        "현재상태": sig_res["label"], "최근매수": sig_res["last_buy"],
+                        "보유여부": "❓ 미확인"
                     }
 
                     if run_full_backtest:
@@ -336,8 +340,7 @@ with tab2:
                             int(p.get("offset_compare_short", 0)), int(p.get("offset_compare_long", 0)),
                             5000000, 
                             float(p.get("stop_loss_pct", 0.0)), float(p.get("take_profit_pct", 0.0)),
-                            str(p.get("strategy_behavior", "1")),
-                            int(p.get("min_hold_days", 0)),
+                            str(p.get("strategy_behavior", "1")), int(p.get("min_hold_days", 0)),
                             float(p.get("fee_bps", 25)), float(p.get("slip_bps", 1)),
                             bool(p.get("use_trend_in_buy", True)), bool(p.get("use_trend_in_sell", False)),
                             str(p.get("buy_operator", ">")), str(p.get("sell_operator", "<")),
@@ -352,23 +355,36 @@ with tab2:
                             atr_multiplier=float(p.get("atr_multiplier", 2.0))
                         )
                         
+                        # [보유여부 판단 로직 복구]
+                        is_holding = False
+                        trades = bt_res.get('매매 로그', [])
+                        if trades:
+                            # 마지막 신호가 BUY이면 현재 보유 중인 것으로 간주
+                            if trades[-1].get('신호') == 'BUY':
+                                is_holding = True
+                        
                         row_data.update({
+                            "보유여부": "🟢 보유중" if is_holding else "⚪ 미보유",
                             "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
                             "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
                             "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
                             "매매횟수": bt_res.get('총 매매 횟수', 0)
                         })
                     else:
-                        row_data.update({"총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "매매횟수": "-"})
+                        # 백테스트 안 돌렸을 때: 시그널만 보고 추정
+                        temp_hold = "🟢 진입신호" if "매수" in sig_res["label"] else "⚪ -"
+                        row_data.update({"보유여부": temp_hold, "총 수익률(%)": "-", "MDD(%)": "-", "승률(%)": "-", "매매횟수": "-"})
+                    
                     rows.append(row_data)
                 else:
-                    rows.append({"전략명": name, "티커": s_ticker, "현재상태": "데이터오류"})
+                    rows.append({"전략명": name, "티커": s_ticker, "보유여부": "❌ 에러", "현재상태": "데이터오류"})
 
             my_bar.empty()
             
             if rows:
                 df_result = pd.DataFrame(rows)
-                # 정렬
+                
+                # 정렬 (수익률 내림차순)
                 if run_full_backtest and "총 수익률(%)" in df_result.columns:
                     try:
                         df_result["sort"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
@@ -376,12 +392,26 @@ with tab2:
                     except: pass
                 
                 st.success("✅ 분석 완료!")
-                st.dataframe(df_result, use_container_width=True, hide_index=True)
+                
+                # 컬럼 순서 지정 (보유여부를 앞으로)
+                cols_order = ["전략명", "티커", "보유여부", "현재상태", "총 수익률(%)", "MDD(%)", "승률(%)", "매매횟수", "최근매수"]
+                final_cols = [c for c in cols_order if c in df_result.columns]
+                
+                st.dataframe(
+                    df_result[final_cols], 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "전략명": st.column_config.TextColumn("전략", width="medium"),
+                        "보유여부": st.column_config.TextColumn("보유 상태", width="small", help="백테스트 상 현재 매수 상태인지 여부"),
+                        "현재상태": st.column_config.TextColumn("오늘 시그널", help="오늘자 매수/매도 시그널"),
+                    }
+                )
             else:
                 st.warning("분석할 프리셋이 없습니다.")
 
-# ---------------------------------------------------------
-    # 2. [NEW] 5/10/15/20년 멀티 백테스트 (계층형 컬럼 표)
+    # ---------------------------------------------------------
+    # 2. 5/10/15/20년 멀티 백테스트 (MultiIndex 컬럼 표)
     # ---------------------------------------------------------
     with sub_tab2:
         st.write("##### ⏳ 과거 4개 구간(5/10/15/20년) 상세 검증")
@@ -389,13 +419,11 @@ with tab2:
         
         if st.button("🗓️ 역사적 구간 분석 시작", type="primary"):
             periods = [5, 10, 15, 20]
-            # 결과를 담을 딕셔너리 리스트 (나중에 MultiIndex DF로 변환)
             data_list = []
             
             total_steps = len(PRESETS) * len(periods)
             p_bar = st.progress(0, text="멀티 백테스트 준비 중...")
             step_count = 0
-            
             today = datetime.date.today()
             
             for name, p in PRESETS.items():
@@ -403,20 +431,15 @@ with tab2:
                 t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
                 m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
                 
-                # 전략 식별자 (인덱스로 사용)
+                # 전략 식별자
                 strategy_idx = f"{name} ({s_ticker})"
-                
-                # 행 데이터 임시 저장소
                 row_data = {}
                 
                 for yr in periods:
                     step_count += 1
                     p_bar.progress(int((step_count / total_steps) * 100), text=f"[{name}] {yr}년 데이터 분석 중...")
-                    
-                    # 기간 설정
                     start_d = today - datetime.timedelta(days=365 * yr)
                     
-                    # 데이터 로드 및 백테스트 파라미터 준비
                     ma_pool = [
                         int(p.get("ma_buy", 50)), int(p.get("ma_sell", 10)),
                         int(p.get("ma_compare_short", 0) or 0), int(p.get("ma_compare_long", 0) or 0)
@@ -453,30 +476,19 @@ with tab2:
                                 atr_multiplier=float(p.get("atr_multiplier", 2.0))
                             )
                             
-                            # 실제 데이터 기간 확인
                             real_start = base['Date'].iloc[0].date()
-                            days_diff = (today - real_start).days
-                            years_avail = round(days_diff / 365, 1)
+                            years_avail = round((today - real_start).days / 365, 1)
+                            suffix = f" ({years_avail}y)" if years_avail < (yr - 0.5) else ""
                             
-                            suffix = ""
-                            if years_avail < (yr - 0.5):
-                                suffix = f" ({years_avail}y)"
-                            
-                            # 데이터 저장 (튜플 키 사용: (대분류, 소분류))
                             row_data[('수익률', f"{yr}년")] = f"{res.get('수익률 (%)', 0)}%{suffix}"
                             row_data[('MDD', f"{yr}년")] = f"{res.get('MDD (%)', 0)}%"
                             row_data[('승률', f"{yr}년")] = f"{res.get('승률 (%)', 0)}%"
                             row_data[('매매횟수', f"{yr}년")] = f"{res.get('총 매매 횟수', 0)}회"
-                        
                         else:
-                            for cat in ['수익률', 'MDD', '승률', '매매횟수']:
-                                row_data[(cat, f"{yr}년")] = "-"
-                                
+                            for cat in ['수익률', 'MDD', '승률', '매매횟수']: row_data[(cat, f"{yr}년")] = "-"
                     except:
-                        for cat in ['수익률', 'MDD', '승률', '매매횟수']:
-                            row_data[(cat, f"{yr}년")] = "Err"
+                        for cat in ['수익률', 'MDD', '승률', '매매횟수']: row_data[(cat, f"{yr}년")] = "Err"
 
-                # 완성된 행 데이터를 리스트에 추가 (인덱스 정보 포함)
                 row_data[('전략', '이름')] = strategy_idx
                 data_list.append(row_data)
             
@@ -484,26 +496,17 @@ with tab2:
             st.success("✅ 통합 분석 완료!")
             
             if data_list:
-                # 1. DataFrame 생성
                 df_raw = pd.DataFrame(data_list)
-                
-                # 2. '전략' 컬럼을 인덱스로 설정
                 if ('전략', '이름') in df_raw.columns:
                     df_raw.set_index(('전략', '이름'), inplace=True)
                     df_raw.index.name = "전략명"
                 
-                # 3. MultiIndex 컬럼 정렬 (수익률 -> MDD -> 승률 -> 매매횟수 순서 보장 위해 reindex)
                 desired_cols = []
                 for cat in ['수익률', 'MDD', '승률', '매매횟수']:
-                    for yr in periods:
-                        desired_cols.append((cat, f"{yr}년"))
+                    for yr in periods: desired_cols.append((cat, f"{yr}년"))
                 
-                # 실제 데이터에 있는 컬럼만 추려서 정렬
                 final_cols = [c for c in desired_cols if c in df_raw.columns]
-                df_final = df_raw[final_cols]
-                
-                # 4. Streamlit 표시
-                st.dataframe(df_final, use_container_width=True)
+                st.dataframe(df_raw[final_cols], use_container_width=True)
                 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
@@ -1090,6 +1093,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
