@@ -13,39 +13,52 @@ def get_data(ticker, start_date, end_date):
 
     ticker = ticker.strip().upper()
     
-    # 후보군 생성 (국장 .KS/.KQ 시도)
+    # 1. 시도할 티커 후보군 생성
     candidates = []
-    if ticker.isdigit():
-        candidates.append(f"{ticker}.KS")
-        candidates.append(f"{ticker}.KQ")
+    if ticker.isdigit(): # '005930' 입력 시
+        candidates.append(f"{ticker}.KS") # 코스피 우선
+        candidates.append(f"{ticker}.KQ") # 코스닥 차선
     else:
-        candidates.append(ticker)
+        candidates.append(ticker) # 'AAPL', 'SOXL' 등
 
     df = pd.DataFrame()
 
+    # 2. 후보군 순회하며 데이터 요청
     for code in candidates:
         try:
-            # yfinance 데이터 요청
-            temp_df = yf.download(code, start=start_date, end=end_date, progress=False, auto_adjust=True)
+            # [변경점] download 대신 Ticker().history 사용 (더 안정적)
+            t = yf.Ticker(code)
+            temp_df = t.history(start=start_date, end=end_date, auto_adjust=True)
             
-            # MultiIndex 컬럼 해결
-            if isinstance(temp_df.columns, pd.MultiIndex):
-                temp_df.columns = temp_df.columns.get_level_values(0)
+            # 데이터가 비어있으면 다음 후보로(예: .KS 실패 -> .KQ 시도)
+            if temp_df.empty:
+                continue
 
-            if not temp_df.empty and len(temp_df) > 5:
+            # [중요] yfinance 최신 버전 호환성 (Timezone 제거)
+            if temp_df.index.tz is not None:
+                temp_df.index = temp_df.index.tz_localize(None)
+
+            # 데이터가 5개 이상 있어야 유효하다고 판단
+            if len(temp_df) > 5:
                 df = temp_df
-                break
-        except Exception:
+                break # 성공했으니 탈출
+                
+        except Exception as e:
+            print(f"Error fetching {code}: {e}")
             continue
 
+    # 3. 모든 시도가 실패했으면 빈 DF 반환
     if df.empty:
-        return EMPTY_DF # [핵심] 그냥 빈 DF가 아니라 컬럼이 있는 빈 DF 반환
+        return EMPTY_DF
 
-    # 데이터 표준화
+    # 4. 데이터 표준화 (이름 변경 등)
+    # yf.Ticker().history()는 인덱스가 Date입니다.
     df = df.reset_index()
     
-    # 날짜 컬럼 보정
+    # 컬럼 이름 통일 로직
     col_map = {c.lower(): c for c in df.columns}
+    
+    # 날짜 컬럼 찾기
     if 'date' in col_map:
         df.rename(columns={col_map['date']: 'Date'}, inplace=True)
     elif 'index' in df.columns:
@@ -53,34 +66,32 @@ def get_data(ticker, start_date, end_date):
     else:
         df.rename(columns={df.columns[0]: 'Date'}, inplace=True)
 
-    # 필수 컬럼 보정
-    required = ['Open', 'High', 'Low', 'Close']
+    # OHLCV 컬럼 확보
+    required = ['Open', 'High', 'Low', 'Close', 'Volume']
     for req in required:
+        found = False
         for col in df.columns:
             if col.lower() == req.lower():
                 df.rename(columns={col: req}, inplace=True)
+                found = True
                 break
+        # 없는 컬럼은 Close로 채우거나 0 처리
+        if not found and 'Close' in df.columns:
+             if req == 'Volume': df[req] = 0
+             else: df[req] = df['Close']
     
-    if 'Close' in df.columns:
-        for req in required:
-            if req not in df.columns:
-                df[req] = df['Close']
-    
-    if 'Volume' not in df.columns:
-        df['Volume'] = 0
-
     try:
         df['Date'] = pd.to_datetime(df['Date'])
-        # 날짜가 없으면 에러 처리
-        if df['Date'].isna().all():
-            return EMPTY_DF
-            
         df = df.sort_values('Date').reset_index(drop=True)
+        # 최종적으로 필요한 컬럼만 리턴
         return df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
-    except:
+    except Exception as e:
+        print(f"Standardization Error: {e}")
         return EMPTY_DF
 
-# 기업 정보 (이전과 동일, 유지)
+# -----------------------------------------------------------
+# 기업 기본 정보 (이전과 동일, 유지)
+# -----------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_fundamental_info(ticker):
     default = {
