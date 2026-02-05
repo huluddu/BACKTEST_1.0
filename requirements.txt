@@ -1,7 +1,7 @@
 streamlit
 pandas
 numpy
-yfinance>=0.2.40
+yfinance
 plotly
 pykrx
 google-generativeai
@@ -9,3 +9,4 @@ setuptools
 gspread
 oauth2client
 lxml
+finance-datareader
