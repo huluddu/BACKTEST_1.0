@@ -280,9 +280,9 @@ with tab1:
 # --- tab2 전체 교체 ---
 # --- Tab 2: 프리셋 전체 분석 ---
 with tab2:
-    st.markdown("### 📚 전략 일괄 진단 대시보드")
+    st.markdown("### 📚 전략 일괄 진단 & 기간별 스트레스 테스트")
     
-    # [요청반영 1] 백테스트는 항상 실행 (화면엔 안 보임)
+    # 백테스트는 항상 실행 (화면엔 안 보임)
     run_full_backtest = True 
     
     # 탭 분리
@@ -322,8 +322,11 @@ with tab2:
                     sig_res = summarize_signal_today(get_data(s_ticker, start_date, end_date), p)
                     
                     row_data = {
-                        "전략명": name, "티커": s_ticker,
-                        "현재상태": sig_res["label"], "최근매수": sig_res["last_buy"]
+                        "전략명": name, 
+                        "티커": t_ticker, # [수정] s_ticker -> t_ticker (매매 티커 기준)
+                        "현재상태": sig_res["label"], 
+                        "최근매수": sig_res["last_buy"],
+                        "보유여부": "❓ 미확인"
                     }
 
                     # 백테스트 실행
@@ -351,20 +354,18 @@ with tab2:
                         atr_multiplier=float(p.get("atr_multiplier", 2.0))
                     )
                     
-                    # [요청반영 2] 보유 여부 및 날짜 표시 로직
+                    # 보유 여부 및 날짜 표시 로직
                     hold_status = "⚪ 미보유"
                     trades = bt_res.get('매매 로그', [])
                     
                     if trades:
                         last_trade = trades[-1]
                         if last_trade.get('신호') == 'BUY':
-                            # 마지막 매수 날짜 가져오기 (문자열 또는 datetime)
                             buy_date = last_trade.get('날짜')
                             if isinstance(buy_date, pd.Timestamp):
                                 buy_date_str = buy_date.strftime("%Y-%m-%d")
                             else:
                                 buy_date_str = str(buy_date)[:10]
-                                
                             hold_status = f"🟢 보유중 ({buy_date_str})"
                     
                     row_data.update({
@@ -377,14 +378,13 @@ with tab2:
                     
                     rows.append(row_data)
                 else:
-                    rows.append({"전략명": name, "티커": s_ticker, "보유여부": "❌ 에러", "현재상태": "데이터오류"})
+                    rows.append({"전략명": name, "티커": t_ticker, "보유여부": "❌ 에러", "현재상태": "데이터오류"})
 
             my_bar.empty()
             
             if rows:
                 df_result = pd.DataFrame(rows)
                 
-                # 정렬 (수익률 내림차순)
                 if "총 수익률(%)" in df_result.columns:
                     try:
                         df_result["sort"] = df_result["총 수익률(%)"].str.replace("%", "").astype(float)
@@ -393,7 +393,6 @@ with tab2:
                 
                 st.success("✅ 분석 완료!")
                 
-                # 컬럼 순서 지정
                 cols_order = ["전략명", "티커", "보유여부", "현재상태", "총 수익률(%)", "MDD(%)", "승률(%)", "매매횟수"]
                 final_cols = [c for c in cols_order if c in df_result.columns]
                 
@@ -403,6 +402,7 @@ with tab2:
                     hide_index=True,
                     column_config={
                         "전략명": st.column_config.TextColumn("전략", width="medium"),
+                        "티커": st.column_config.TextColumn("매매 종목", width="small"),
                         "보유여부": st.column_config.TextColumn("보유 상태", width="medium", help="백테스트 상 현재 매수 상태인지 여부 (매수일)"),
                         "현재상태": st.column_config.TextColumn("오늘 시그널", help="오늘자 매수/매도 시그널"),
                     }
@@ -411,7 +411,7 @@ with tab2:
                 st.warning("분석할 프리셋이 없습니다.")
 
     # ---------------------------------------------------------
-    # 2. 5/10/15/20년 멀티 백테스트 (MultiIndex 컬럼 표)
+    # 2. 5/10/15/20년 멀티 백테스트 (매매 티커 기준)
     # ---------------------------------------------------------
     with sub_tab2:
         st.write("##### ⏳ 과거 4개 구간(5/10/15/20년) 상세 검증")
@@ -431,8 +431,9 @@ with tab2:
                 t_ticker = p.get("trade_ticker", p.get("trade_ticker_input", "SOXL"))
                 m_ticker = p.get("market_ticker", p.get("market_ticker_input", "SPY"))
                 
-                # 전략 식별자
-                strategy_idx = f"{name} ({s_ticker})"
+                # 전략 식별자 (매매 티커 표시)
+                # [수정] s_ticker -> t_ticker
+                strategy_idx = f"{name} ({t_ticker})"
                 row_data = {}
                 
                 for yr in periods:
@@ -499,7 +500,7 @@ with tab2:
                 df_raw = pd.DataFrame(data_list)
                 if ('전략', '이름') in df_raw.columns:
                     df_raw.set_index(('전략', '이름'), inplace=True)
-                    df_raw.index.name = "전략명"
+                    df_raw.index.name = "전략명 (매매종목)"
                 
                 desired_cols = []
                 for cat in ['수익률', 'MDD', '승률', '매매횟수']:
@@ -1093,6 +1094,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
