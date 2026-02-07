@@ -179,7 +179,7 @@ start_date = col4.date_input("시작일", value=datetime.date(2020, 1, 1))
 end_date = col5.date_input("종료일", value=datetime.date.today())
 
 # --- 사이드바 상세 설정 UI (전체 교체) ---
-with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
+with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=False):
     tabs = st.tabs(["📊 이평선 설정", "🚦 시장 필터", "🌊 볼린저 밴드", "🛡️ 리스크/기타"])
 
     # 1. 이평선 및 추세선 설정
@@ -1166,6 +1166,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
