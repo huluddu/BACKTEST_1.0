@@ -536,8 +536,38 @@ with tab2:
                 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
+        
+        p_ma_buy = int(st.session_state.ma_buy)
+        p_ma_sell = int(st.session_state.ma_sell)
+        p_ma_compare_short = int(st.session_state.ma_compare_short) if st.session_state.ma_compare_short else 0
+        p_ma_compare_long = int(st.session_state.ma_compare_long) if st.session_state.ma_compare_long else 0
+        
+        ma_pool = [p_ma_buy, p_ma_sell, p_ma_compare_short, p_ma_compare_long]
+        base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool, st.session_state.market_ma_period)
+        
+        if base is not None:
+            with st.spinner("과거 데이터를 한 땀 한 땀 분석 중..."):
+                p_use_rsi = st.session_state.get("use_rsi_filter", False)
+                p_rsi_period = st.session_state.get("rsi_period", 14)
+                p_rsi_max = st.session_state.get("rsi_max", 70)
 
-# -------------------------------------------------------------
+                res = backtest_fast(base, x_sig, x_trd, ma_dict, p_ma_buy, st.session_state.offset_ma_buy, p_ma_sell, st.session_state.offset_ma_sell, st.session_state.offset_cl_buy, st.session_state.offset_cl_sell, p_ma_compare_short, p_ma_compare_long, st.session_state.offset_compare_short, st.session_state.offset_compare_long, 5000000, st.session_state.stop_loss_pct, st.session_state.take_profit_pct, st.session_state.strategy_behavior, st.session_state.min_hold_days, st.session_state.fee_bps, st.session_state.slip_bps, st.session_state.use_trend_in_buy, st.session_state.use_trend_in_sell, st.session_state.buy_operator, st.session_state.sell_operator, 
+                                use_rsi_filter=p_use_rsi, rsi_period=p_rsi_period, rsi_min=30, rsi_max=p_rsi_max,
+                                use_market_filter=st.session_state.use_market_filter, x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
+                                use_bollinger=st.session_state.use_bollinger, bb_period=st.session_state.bb_period, bb_std=st.session_state.bb_std, 
+                                bb_entry_type=st.session_state.bb_entry_type, bb_exit_type=st.session_state.bb_exit_type,
+                                # [추가됨] ATR 파라미터 전달
+                                use_atr_stop=st.session_state.get("use_atr_stop", False),
+                                atr_multiplier=st.session_state.get("atr_multiplier", 2.0))
+            st.session_state["bt_result"] = res
+            if "ai_analysis" in st.session_state: del st.session_state["ai_analysis"]
+            st.rerun()
+        else: st.error("데이터 로딩 실패")
+
+    if "bt_result" in st.session_state:
+
+
+        # -------------------------------------------------------------
         # [NEW] 전략 해석기 (한글 문장 출력)
         # -------------------------------------------------------------
         st.divider()
@@ -578,35 +608,8 @@ with tab3:
         )
         st.divider()
         # -------------------------------------------------------------
+ 
         
-        p_ma_buy = int(st.session_state.ma_buy)
-        p_ma_sell = int(st.session_state.ma_sell)
-        p_ma_compare_short = int(st.session_state.ma_compare_short) if st.session_state.ma_compare_short else 0
-        p_ma_compare_long = int(st.session_state.ma_compare_long) if st.session_state.ma_compare_long else 0
-        
-        ma_pool = [p_ma_buy, p_ma_sell, p_ma_compare_short, p_ma_compare_long]
-        base, x_sig, x_trd, ma_dict, x_mkt, ma_mkt_arr = prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool, st.session_state.market_ma_period)
-        
-        if base is not None:
-            with st.spinner("과거 데이터를 한 땀 한 땀 분석 중..."):
-                p_use_rsi = st.session_state.get("use_rsi_filter", False)
-                p_rsi_period = st.session_state.get("rsi_period", 14)
-                p_rsi_max = st.session_state.get("rsi_max", 70)
-
-                res = backtest_fast(base, x_sig, x_trd, ma_dict, p_ma_buy, st.session_state.offset_ma_buy, p_ma_sell, st.session_state.offset_ma_sell, st.session_state.offset_cl_buy, st.session_state.offset_cl_sell, p_ma_compare_short, p_ma_compare_long, st.session_state.offset_compare_short, st.session_state.offset_compare_long, 5000000, st.session_state.stop_loss_pct, st.session_state.take_profit_pct, st.session_state.strategy_behavior, st.session_state.min_hold_days, st.session_state.fee_bps, st.session_state.slip_bps, st.session_state.use_trend_in_buy, st.session_state.use_trend_in_sell, st.session_state.buy_operator, st.session_state.sell_operator, 
-                                use_rsi_filter=p_use_rsi, rsi_period=p_rsi_period, rsi_min=30, rsi_max=p_rsi_max,
-                                use_market_filter=st.session_state.use_market_filter, x_mkt=x_mkt, ma_mkt_arr=ma_mkt_arr,
-                                use_bollinger=st.session_state.use_bollinger, bb_period=st.session_state.bb_period, bb_std=st.session_state.bb_std, 
-                                bb_entry_type=st.session_state.bb_entry_type, bb_exit_type=st.session_state.bb_exit_type,
-                                # [추가됨] ATR 파라미터 전달
-                                use_atr_stop=st.session_state.get("use_atr_stop", False),
-                                atr_multiplier=st.session_state.get("atr_multiplier", 2.0))
-            st.session_state["bt_result"] = res
-            if "ai_analysis" in st.session_state: del st.session_state["ai_analysis"]
-            st.rerun()
-        else: st.error("데이터 로딩 실패")
-
-    if "bt_result" in st.session_state:
         res = st.session_state["bt_result"]
         if res:
             # ---------------------------------------
@@ -1162,6 +1165,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
