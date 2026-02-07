@@ -14,37 +14,23 @@ from modules.llm_advisor import ask_gemini_analysis, ask_gemini_chat, ask_gemini
 
 st.set_page_config(page_title="QuantLab: Modular Ver.", page_icon="⚡", layout="wide")
 
-# --- 전략을 한글 문장으로 변환하는 함수 ---
-def get_strategy_text(ticker, ma, off_ma, off_cl, op):
-    """
-    예: SOXL의 1일 전 20일 이평선이 0일 전 종가보다 클 때
-    """
-    # 시점 표현
-    t_ma = "현재(오늘)" if off_ma == 0 else f"{off_ma}일 전"
-    t_cl = "현재(오늘)" if off_cl == 0 else f"{off_cl}일 전"
+# --- [함수 정의] 전략을 한글 문장으로 변환 ---
+def translate_strategy_condition(ticker, ma_period, offset_ma, offset_cl, operator):
+    ma_time = "현재" if offset_ma == 0 else f"{offset_ma}일 전"
+    cl_time = "현재" if offset_cl == 0 else f"{offset_cl}일 전"
     
-    # 주어와 목적어
-    subject = f"**{ticker}**의 **{t_ma} {ma}일 이평선**"
-    object_ = f"**{t_cl} 종가**"
-    
-    # 서술어 (부호 해석)
-    if op == ">":
-        verb = "높을 때 (MA > Price)"
-    elif op == "<":
-        verb = "낮을 때 (MA < Price)"
-    else:
-        verb = f"({op})일 때"
-        
-    return f"{subject}이 {object_}보다 {verb}"
+    op_desc = ""
+    if operator == ">": op_desc = "클 때"
+    elif operator == "<": op_desc = "작을 때"
+    else: op_desc = f"({operator})일 때"
 
-def get_trend_text(ticker, s_ma, s_off, l_ma, l_off):
-    """
-    추세 필터용 문장
-    """
-    t_s = "현재" if s_off == 0 else f"{s_off}일 전"
-    t_l = "현재" if l_off == 0 else f"{l_off}일 전"
-    
-    return f"**{ticker}**의 **{t_s} {s_ma}일 이평선**이 **{t_l} {l_ma}일 이평선**보다 **높을 때 (정배열)**"
+    return f"**{ticker}**의 **{ma_time} {ma_period}일 이평선**이 **{cl_time} 종가**보다 **{op_desc}**"
+
+def translate_trend_condition(ticker, ma_short, off_short, ma_long, off_long):
+    s_time = "현재" if off_short == 0 else f"{off_short}일 전"
+    l_time = "현재" if off_long == 0 else f"{off_long}일 전"
+    return f"**{s_time} {ma_short}일 이평선**이 **{l_time} {ma_long}일 이평선**보다 **클 때 (정배열)**"
+
 
 # ==========================================
 # 1. 초기 상태 및 프리셋 설정
@@ -565,52 +551,48 @@ with tab3:
         else: st.error("데이터 로딩 실패")
 
     if "bt_result" in st.session_state:
+        res = st.session_state["bt_result"]
 
-
-        # -------------------------------------------------------------
-        # [NEW] 전략 해석기 (한글 문장 출력)
-        # -------------------------------------------------------------
+        # =========================================================
+        # [전략 해석 표시]
+        # =========================================================
         st.divider()
         st.markdown("### 📖 전략 해석")
-        
-        # 1. 매수 조건 해석
-        buy_cond = get_strategy_text(
+
+        # (1) 매수 조건 (MA vs Price)
+        buy_main = translate_strategy_condition(
             signal_ticker, 
-            st.session_state.ma_buy, 
-            st.session_state.offset_ma_buy, 
-            st.session_state.offset_cl_buy, 
-            st.session_state.buy_operator
+            st.session_state.ma_buy, st.session_state.offset_ma_buy, st.session_state.offset_cl_buy, st.session_state.buy_operator
         )
         
-        # 2. 매수 추세 해석
+        # (2) [수정됨] 매수 추세 필터 (Trend Filter)
         buy_trend = ""
         if st.session_state.use_trend_in_buy:
-            trend_txt = get_trend_text(
+            # 추세 조건 문장 생성
+            t_txt = translate_trend_condition(
                 signal_ticker,
                 st.session_state.ma_compare_short, st.session_state.offset_compare_short,
                 st.session_state.ma_compare_long, st.session_state.offset_compare_long
             )
-            buy_trend = f"\n  - ➕ **추세 필터:** {trend_txt}"
+            buy_trend = f"\n  - ➕ **추세 필터:** {t_txt}"
 
-        # 3. 매도 조건 해석
-        sell_cond = get_strategy_text(
+        # (3) 매도 조건
+        sell_main = translate_strategy_condition(
             signal_ticker, 
-            st.session_state.ma_sell, 
-            st.session_state.offset_ma_sell, 
-            st.session_state.offset_cl_sell, 
-            st.session_state.sell_operator
+            st.session_state.ma_sell, st.session_state.offset_ma_sell, st.session_state.offset_cl_sell, st.session_state.sell_operator
         )
-        
-        # 4. 화면 출력 (Info 박스)
-        st.info(
-            f"🔵 **매수 진입:** {buy_cond}{buy_trend}\n\n"
-            f"🔴 **매도 청산:** {sell_cond}"
-        )
+
+        # (4) 매도 역추세 필터 (혹시 쓰신다면)
+        sell_trend = ""
+        if st.session_state.use_trend_in_sell:
+             # 역추세는 보통 정배열이 깨졌을 때(단기 < 장기)거나 사용자 정의
+             sell_trend = "\n  - ➕ **역추세 필터 적용됨**"
+
+        # 화면 출력
+        st.info(f"🔵 **매수 진입:** {buy_main}{buy_trend}\n\n🔴 **매도 청산:** {sell_main}{sell_trend}")
         st.divider()
-        # -------------------------------------------------------------
- 
+        # =========================================================        
         
-        res = st.session_state["bt_result"]
         if res:
             # ---------------------------------------
             # [NEW] B&H(단순보유) 성과 계산 로직 추가
@@ -1165,6 +1147,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
