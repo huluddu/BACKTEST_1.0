@@ -26,11 +26,22 @@ def translate_strategy_condition(ticker, ma_period, offset_ma, offset_cl, operat
 
     return f"**{ticker}**의 **{ma_time} {ma_period}일 이평선**이 **{cl_time} 종가**보다 **{op_desc}**"
 
-def translate_trend_condition(ticker, ma_short, off_short, ma_long, off_long):
+# --- [함수 수정] 추세/역추세 모두 해석 가능하도록 변경 ---
+def translate_trend_condition(ticker, ma_short, off_short, ma_long, off_long, mode="buy"):
+    """
+    mode="buy": 정배열 (Short > Long)
+    mode="sell": 역배열 (Short < Long)
+    """
     s_time = "현재" if off_short == 0 else f"{off_short}일 전"
     l_time = "현재" if off_long == 0 else f"{off_long}일 전"
-    return f"**{s_time} {ma_short}일 이평선**이 **{l_time} {ma_long}일 이평선**보다 **클 때 (정배열)**"
+    
+    s_desc = f"**{s_time} {ma_short}일 이평선**"
+    l_desc = f"**{l_time} {ma_long}일 이평선**"
 
+    if mode == "buy":
+        return f"{s_desc}이 {l_desc}보다 **클 때 (정배열)**"
+    else:
+        return f"{s_desc}이 {l_desc}보다 **작을 때 (역배열/데드크로스)**"
 
 # ==========================================
 # 1. 초기 상태 및 프리셋 설정
@@ -167,87 +178,90 @@ col4, col5 = st.columns(2)
 start_date = col4.date_input("시작일", value=datetime.date(2020, 1, 1))
 end_date = col5.date_input("종료일", value=datetime.date.today())
 
+# --- 사이드바 상세 설정 UI (전체 교체) ---
 with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=True):
     tabs = st.tabs(["📊 이평선 설정", "🚦 시장 필터", "🌊 볼린저 밴드", "🛡️ 리스크/기타"])
 
+    # 1. 이평선 및 추세선 설정
     with tabs[0]:
+        st.markdown("#### 📥 매수 조건")
         c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### 📥 매수")
-            ma_buy = st.number_input("매수 이평", key="ma_buy", step=1, min_value=1)
-            offset_ma_buy = st.number_input("매수 이평 Offset", key="offset_ma_buy", step=1)
-            offset_cl_buy = st.number_input("매수 종가 Offset", key="offset_cl_buy", step=1)
-            buy_operator = st.selectbox("매수 부호", [">", "<"], key="buy_operator")
-            use_trend_in_buy = st.checkbox("매수 추세 필터", key="use_trend_in_buy")
-        with c2:
-            st.markdown("#### 📤 매도")
-            ma_sell = st.number_input("매도 이평", key="ma_sell", step=1, min_value=1)
-            offset_ma_sell = st.number_input("매도 이평 Offset", key="offset_ma_sell", step=1)
-            offset_cl_sell = st.number_input("매도 종가 Offset", key="offset_cl_sell", step=1)
-            sell_operator = st.selectbox("매도 부호", ["<", ">", "OFF"], key="sell_operator")
-            use_trend_in_sell = st.checkbox("매도 역추세 필터", key="use_trend_in_sell")
+        c1.number_input("매수 이평 (MA)", key="ma_buy", step=1, min_value=1)
+        c2.number_input("매수 이평 Offset", key="offset_ma_buy", step=1)
+        c1.number_input("매수 종가 Offset", key="offset_cl_buy", step=1)
+        c2.selectbox("매수 부호", [">", "<"], key="buy_operator")
+        st.checkbox("매수 추세 필터 (정배열)", key="use_trend_in_buy")
 
-
-        
         st.divider()
+        st.markdown("#### 📤 매도 조건")
         c3, c4 = st.columns(2)
-        with c3:
-            st.markdown("#### 📈 추세선")
-            ma_compare_short = st.number_input("추세 Short", key="ma_compare_short", step=1, min_value=1)
-            offset_compare_short = st.number_input("추세 Short Offset", key="offset_compare_short", step=1)
-        with c4:
-            st.markdown("#### .")
-            ma_compare_long = st.number_input("추세 Long", key="ma_compare_long", step=1, min_value=1)
-            offset_compare_long = st.number_input("추세 Long Offset", key="offset_compare_long", step=1)
+        c3.number_input("매도 이평 (MA)", key="ma_sell", step=1, min_value=1)
+        c4.number_input("매도 이평 Offset", key="offset_ma_sell", step=1)
+        c3.number_input("매도 종가 Offset", key="offset_cl_sell", step=1)
+        c4.selectbox("매도 부호", ["<", ">", "OFF"], key="sell_operator")
+        st.checkbox("매도 역추세 필터 (역배열)", key="use_trend_in_sell")
 
+        st.divider()
+        # [복구된 부분] 추세선 설정
+        st.markdown("#### 📈 추세선 설정 (Trend Line)")
+        st.caption("추세 필터 사용 시 비교할 두 이평선입니다.")
+        
+        t1, t2 = st.columns(2)
+        with t1:
+            st.markdown("**단기 추세선 (Short)**")
+            st.number_input("기간 (Period)", key="ma_compare_short", step=1, min_value=1)
+            st.number_input("오프셋 (Offset)", key="offset_compare_short", step=1)
+        with t2:
+            st.markdown("**장기 추세선 (Long)**")
+            st.number_input("기간 (Period)", key="ma_compare_long", step=1, min_value=1)
+            st.number_input("오프셋 (Offset)", key="offset_compare_long", step=1)
+
+    # 2. 시장 필터
     with tabs[1]:
         st.markdown("#### 🚦 시장 필터 (Market Filter)")
         st.write("시장 지수(예: SPY)가 이평선 위에 있을 때만 매수합니다.")
-        use_market_filter = st.checkbox("시장 필터 사용", key="use_market_filter")
-        market_ma_period = st.number_input("시장 이평선 기간", value=200, step=10, key="market_ma_period")
+        st.checkbox("시장 필터 사용", key="use_market_filter")
+        st.number_input("시장 이평선 기간", value=200, step=10, key="market_ma_period")
 
+    # 3. 볼린저 밴드
     with tabs[2]:
         st.markdown("#### 🌊 볼린저 밴드 (Volatility Breakout)")
         st.write("이평선 매매 대신 볼린저 밴드 돌파 전략을 사용합니다.")
-        use_bollinger = st.checkbox("볼린저 밴드 사용", key="use_bollinger")
+        st.checkbox("볼린저 밴드 사용", key="use_bollinger")
         c_b1, c_b2 = st.columns(2)
-        bb_period = c_b1.number_input("밴드 기간", value=20, key="bb_period")
-        bb_std = c_b2.number_input("밴드 승수 (Std Dev)", value=2.0, step=0.1, key="bb_std")
-        bb_entry_type = st.selectbox("매수 기준", ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"], key="bb_entry_type")
-        bb_exit_type = st.selectbox("매도 기준", ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"], key="bb_exit_type")
-        if use_bollinger:
-            st.info("ℹ️ 활성화 시 '이평선 매매' 조건은 무시됩니다.")
+        c_b1.number_input("밴드 기간", value=20, key="bb_period")
+        c_b2.number_input("밴드 승수 (Std Dev)", value=2.0, step=0.1, key="bb_std")
+        st.selectbox("매수 기준", ["상단선 돌파 (추세)", "하단선 이탈 (역추세)", "중심선 돌파"], key="bb_entry_type")
+        st.selectbox("매도 기준", ["중심선(MA) 이탈", "상단선 복귀", "하단선 이탈"], key="bb_exit_type")
 
+    # 4. 리스크 및 기타
     with tabs[3]:
         c5, c6 = st.columns(2)
         with c5:
             st.markdown("#### 🛡️ 리스크")
-            # [추가됨] ATR 손절 UI 적용
-            use_atr_stop = st.checkbox("ATR(변동성) 손절 사용", key="use_atr_stop")
-            if use_atr_stop:
-                atr_multiplier = st.number_input("ATR 배수 (보통 2~3)", value=2.0, step=0.1, key="atr_multiplier")
-                st.caption(f"📉 진입가 - (ATR x {atr_multiplier}) 가격에 도달하면 손절합니다.")
-                stop_loss_pct = 0.0 # ATR 사용시 % 손절은 0으로 처리하거나 무시
+            st.checkbox("ATR(변동성) 손절 사용", key="use_atr_stop")
+            if st.session_state.use_atr_stop:
+                st.number_input("ATR 배수", value=2.0, step=0.1, key="atr_multiplier")
+                st.caption("손절가 = 진입가 - (ATR x 배수)")
+                stop_loss_pct = 0.0
             else:
-                stop_loss_pct = st.number_input("고정 손절 (%)", step=0.5, key="stop_loss_pct")
-                
-            take_profit_pct = st.number_input("익절 (%)", step=0.5, key="take_profit_pct")
-            min_hold_days = st.number_input("최소 보유일", step=1, key="min_hold_days")
+                st.number_input("고정 손절 (%)", step=0.5, key="stop_loss_pct")
+            
+            st.number_input("익절 (%)", step=0.5, key="take_profit_pct")
+            st.number_input("최소 보유일", step=1, key="min_hold_days")
         with c6:
             st.markdown("#### ⚙️ 기타")
-            strategy_behavior = st.selectbox("행동 패턴", ["1. 포지션 없으면 매수 / 보유 중이면 매도", "2. 매수 우선", "3. 관망"], key="strategy_behavior")
-            fee_bps = st.number_input("수수료 (bps)", value=25, step=1, key="fee_bps")
-            slip_bps = st.number_input("슬리피지 (bps)", value=5, step=1, key="slip_bps")
-            seed = st.number_input("랜덤 시드", value=0, step=1)
-            if seed > 0: random.seed(seed)
-        
+            st.selectbox("행동 패턴", ["1. 포지션 없으면 매수 / 보유 중이면 매도", "2. 매수 우선"], key="strategy_behavior")
+            st.number_input("수수료 (bps)", value=25, step=1, key="fee_bps")
+            st.number_input("슬리피지 (bps)", value=5, step=1, key="slip_bps")
+            
         st.divider()
-        st.markdown("#### 🔮 보조지표 설정")
+        st.markdown("#### 🔮 보조지표")
         c_r1, c_r2 = st.columns(2)
-        rsi_p = c_r1.number_input("RSI 기간 (Period)", 14, step=1, key="rsi_period")
-        u_rsi = st.checkbox("RSI 필터 적용 (매수시 과열 방지)", key="use_rsi_filter")
-        if u_rsi:
-            rsi_max = c_r2.number_input("RSI 과매수 기준", 70, key="rsi_max")
+        c_r1.number_input("RSI 기간", 14, step=1, key="rsi_period")
+        st.checkbox("RSI 필터 적용", key="use_rsi_filter")
+        if st.session_state.use_rsi_filter:
+            c_r2.number_input("RSI 과매수 기준", 70, key="rsi_max")
 
 # ==========================================
 # 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
@@ -559,20 +573,20 @@ with tab3:
         st.divider()
         st.markdown("### 📖 전략 해석")
 
-        # (1) 매수 조건 (MA vs Price)
+        # (1) 매수 조건
         buy_main = translate_strategy_condition(
             signal_ticker, 
             st.session_state.ma_buy, st.session_state.offset_ma_buy, st.session_state.offset_cl_buy, st.session_state.buy_operator
         )
         
-        # (2) [수정됨] 매수 추세 필터 (Trend Filter)
+        # (2) 매수 추세 필터 (정배열)
         buy_trend = ""
         if st.session_state.use_trend_in_buy:
-            # 추세 조건 문장 생성
             t_txt = translate_trend_condition(
                 signal_ticker,
                 st.session_state.ma_compare_short, st.session_state.offset_compare_short,
-                st.session_state.ma_compare_long, st.session_state.offset_compare_long
+                st.session_state.ma_compare_long, st.session_state.offset_compare_long,
+                mode="buy"
             )
             buy_trend = f"\n  - ➕ **추세 필터:** {t_txt}"
 
@@ -582,11 +596,16 @@ with tab3:
             st.session_state.ma_sell, st.session_state.offset_ma_sell, st.session_state.offset_cl_sell, st.session_state.sell_operator
         )
 
-        # (4) 매도 역추세 필터 (혹시 쓰신다면)
+        # (4) 매도 역추세 필터 (역배열) - [수정됨] 상세 표시
         sell_trend = ""
         if st.session_state.use_trend_in_sell:
-             # 역추세는 보통 정배열이 깨졌을 때(단기 < 장기)거나 사용자 정의
-             sell_trend = "\n  - ➕ **역추세 필터 적용됨**"
+            t_txt = translate_trend_condition(
+                signal_ticker,
+                st.session_state.ma_compare_short, st.session_state.offset_compare_short,
+                st.session_state.ma_compare_long, st.session_state.offset_compare_long,
+                mode="sell"
+            )
+            sell_trend = f"\n  - ➕ **역추세 필터:** {t_txt}"
 
         # 화면 출력
         st.info(f"🔵 **매수 진입:** {buy_main}{buy_trend}\n\n🔴 **매도 청산:** {sell_main}{sell_trend}")
@@ -1147,6 +1166,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
