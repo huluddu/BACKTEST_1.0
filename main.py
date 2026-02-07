@@ -14,6 +14,38 @@ from modules.llm_advisor import ask_gemini_analysis, ask_gemini_chat, ask_gemini
 
 st.set_page_config(page_title="QuantLab: Modular Ver.", page_icon="⚡", layout="wide")
 
+# --- 전략을 한글 문장으로 변환하는 함수 ---
+def get_strategy_text(ticker, ma, off_ma, off_cl, op):
+    """
+    예: SOXL의 1일 전 20일 이평선이 0일 전 종가보다 클 때
+    """
+    # 시점 표현
+    t_ma = "현재(오늘)" if off_ma == 0 else f"{off_ma}일 전"
+    t_cl = "현재(오늘)" if off_cl == 0 else f"{off_cl}일 전"
+    
+    # 주어와 목적어
+    subject = f"**{ticker}**의 **{t_ma} {ma}일 이평선**"
+    object_ = f"**{t_cl} 종가**"
+    
+    # 서술어 (부호 해석)
+    if op == ">":
+        verb = "높을 때 (MA > Price)"
+    elif op == "<":
+        verb = "낮을 때 (MA < Price)"
+    else:
+        verb = f"({op})일 때"
+        
+    return f"{subject}이 {object_}보다 {verb}"
+
+def get_trend_text(ticker, s_ma, s_off, l_ma, l_off):
+    """
+    추세 필터용 문장
+    """
+    t_s = "현재" if s_off == 0 else f"{s_off}일 전"
+    t_l = "현재" if l_off == 0 else f"{l_off}일 전"
+    
+    return f"**{ticker}**의 **{t_s} {s_ma}일 이평선**이 **{t_l} {l_ma}일 이평선**보다 **높을 때 (정배열)**"
+
 # ==========================================
 # 1. 초기 상태 및 프리셋 설정
 # ==========================================
@@ -504,6 +536,49 @@ with tab2:
                 
 with tab3:
     if st.button("✅ 백테스트 실행 (종가매매)", type="primary", use_container_width=True):
+
+# -------------------------------------------------------------
+        # [NEW] 전략 해석기 (한글 문장 출력)
+        # -------------------------------------------------------------
+        st.divider()
+        st.markdown("### 📖 전략 해석")
+        
+        # 1. 매수 조건 해석
+        buy_cond = get_strategy_text(
+            signal_ticker, 
+            st.session_state.ma_buy, 
+            st.session_state.offset_ma_buy, 
+            st.session_state.offset_cl_buy, 
+            st.session_state.buy_operator
+        )
+        
+        # 2. 매수 추세 해석
+        buy_trend = ""
+        if st.session_state.use_trend_in_buy:
+            trend_txt = get_trend_text(
+                signal_ticker,
+                st.session_state.ma_compare_short, st.session_state.offset_compare_short,
+                st.session_state.ma_compare_long, st.session_state.offset_compare_long
+            )
+            buy_trend = f"\n  - ➕ **추세 필터:** {trend_txt}"
+
+        # 3. 매도 조건 해석
+        sell_cond = get_strategy_text(
+            signal_ticker, 
+            st.session_state.ma_sell, 
+            st.session_state.offset_ma_sell, 
+            st.session_state.offset_cl_sell, 
+            st.session_state.sell_operator
+        )
+        
+        # 4. 화면 출력 (Info 박스)
+        st.info(
+            f"🔵 **매수 진입:** {buy_cond}{buy_trend}\n\n"
+            f"🔴 **매도 청산:** {sell_cond}"
+        )
+        st.divider()
+        # -------------------------------------------------------------
+        
         p_ma_buy = int(st.session_state.ma_buy)
         p_ma_sell = int(st.session_state.ma_sell)
         p_ma_compare_short = int(st.session_state.ma_compare_short) if st.session_state.ma_compare_short else 0
@@ -1087,6 +1162,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
