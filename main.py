@@ -594,7 +594,7 @@ with tab3:
                                     subplot_titles=("주가 & 매매타점 (Candle + MA)", "내 자산 vs 보유 전략 (Equity)", "MDD (%)"))
 
                 if base_df is not None:
-                    fig.add_trace(go.Candlestick(x=base_df['Date'], open=base_df['Open_sig'], high=base_df['High_sig'], low=base_df['Low_sig'], close=base_df['Close_sig'], name='가격(Signal)'), row=1, col=1)
+                    fig.add_trace(go.Candlestick(x=base_df['Date'], open=base_df['Open_trd'], high=base_df['High_trd'], low=base_df['Low_trd'], close=base_df['Close_trd'], name='가격(Signal)'), row=1, col=1)
                     
                     if st.session_state.use_bollinger and chart_data.get("bb_up") is not None:
                         fig.add_trace(go.Scatter(x=base_df['Date'], y=chart_data['bb_up'], name='BB 상단', line=dict(color='gray', width=1, dash='dot')), row=1, col=1)
@@ -1087,6 +1087,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
