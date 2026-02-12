@@ -55,11 +55,11 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     if trd is None or trd.empty or 'Date' not in trd.columns: return None, None, None, None, None, None
     trd = trd.sort_values("Date")
     
-    # ATR 계산 (매매 데이터 기준)
+    # ATR 계산
     trd["ATR"] = calculate_atr(trd, period=14)
 
     sig = sig.rename(columns={"Close": "Close_sig", "Open":"Open_sig", "High":"High_sig", "Low":"Low_sig"})
-    # 필요한 컬럼만 남기기 (에러 방지)
+    # 필요한 컬럼만 선택 (에러 방지)
     sig_cols = [c for c in ["Date", "Close_sig", "Open_sig", "High_sig", "Low_sig"] if c in sig.columns]
     sig = sig[sig_cols]
     
@@ -87,13 +87,14 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
         ma_mkt_arr = _fast_ma(x_mkt, int(market_ma_period))
 
     ma_dict_sig = {}
+    # ma_pool 정제
     valid_periods = sorted(set([int(w) for w in ma_pool if w and w > 0]))
     for w in valid_periods:
         ma_dict_sig[w] = _fast_ma(x_sig, w)
         
     return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr
 
-# --- 시그널 체크 (상세) ---
+# --- 시그널 체크 (상세 - Tab 1용) ---
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
                        use_market_filter=False, market_ticker="", market_ma_period=200, 
                        use_bollinger=False, bb_period=20, bb_std=2.0, bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈"):
@@ -108,7 +109,7 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
     last_row = df.iloc[-1]
     last_date = pd.to_datetime(last_row['Date'])
     
-    # [검증 1] 날짜 체크 (장 시작 전이면 어제 데이터일 수 있음)
+    # [검증 1] 날짜 체크
     diff_days = (datetime.datetime.now() - last_date).days
     if diff_days > 4:
         st.warning(f"⚠️ 데이터가 {diff_days}일 전({last_date.date()}) 기준입니다. 최신 데이터가 아닐 수 있습니다.")
@@ -157,13 +158,10 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
             
             # 매수
             if "상단선" in str(bb_entry_type): 
-                # 상단 돌파 (어제는 아래, 오늘은 위)
                 buy_ok = prev_cl <= bb_u and cl_b > bb_u; cond_str = f"종가 > 상단 {bb_u:.2f} (돌파)"
             elif "하단선" in str(bb_entry_type): 
-                # 하단 이탈
                 buy_ok = cl_b < bb_l; cond_str = f"종가 < 하단 {bb_l:.2f}"
             else: 
-                # 중심선 돌파
                 buy_ok = prev_cl <= bb_m and cl_b > bb_m; cond_str = f"종가 > 중심 {bb_m:.2f} (돌파)"
 
             # 매도
@@ -194,7 +192,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 sell_cond_str = "OFF"
             else:
                 sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
-                # 역추세 필터 (use_trend_in_sell): 정배열(trend_ok)이면 매도 안 함 -> 역배열(!trend_ok)일 때만 매도
                 sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
                 sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
             
@@ -204,7 +201,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         final_buy = buy_ok and market_ok
         
         st.subheader(f"📌 시그널 진단")
-        
         col1, col2 = st.columns(2)
         with col1:
              st.markdown(f"**🟢 매수 조건**")
@@ -224,6 +220,8 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 
     except Exception as e: st.error(f"분석 중 오류: {e}")
 
+# --- [수정 완료] 프리셋 분석 함수 (Tab 2용) ---
+# 매도 로직을 확실하게 복구했습니다.
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-"}
     try:
@@ -231,14 +229,22 @@ def summarize_signal_today(df, p):
         df = df.copy().sort_values("Date").reset_index(drop=True)
         if len(df) < 60: return {"label": "데이터부족", "last_buy": "-"}
         
-        last_idx = df.index[-1] # 가장 최근 (어제 or 오늘)
+        last_idx = df.index[-1] # [중요] 전일 종가 기준 (최신 데이터)
         
         # 파라미터 로드
         ma_buy = int(p.get("ma_buy", 20))
+        ma_sell = int(p.get("ma_sell", 10))
+        
         off_ma_b = int(p.get("offset_ma_buy", 0))
         off_cl_b = int(p.get("offset_cl_buy", 0))
+        off_ma_s = int(p.get("offset_ma_sell", 0))
+        off_cl_s = int(p.get("offset_cl_sell", 0))
+        
         buy_op = str(p.get("buy_operator", ">"))
-        use_trend = bool(p.get("use_trend_in_buy", False))
+        sell_op = str(p.get("sell_operator", "<"))
+        
+        use_trend_buy = bool(p.get("use_trend_in_buy", False))
+        use_trend_sell = bool(p.get("use_trend_in_sell", False))
         
         ma_s = int(p.get("ma_compare_short", 0) or 0)
         ma_l = int(p.get("ma_compare_long", 0) or 0)
@@ -247,22 +253,42 @@ def summarize_signal_today(df, p):
         
         closes = pd.to_numeric(df["Close"], errors='coerce')
         
-        # 매수 조건 체크
-        # 1. 이평선 값
-        ma_val = closes.rolling(ma_buy).mean().iloc[last_idx - off_ma_b]
-        cl_val = closes.iloc[last_idx - off_cl_b]
+        # --- [1] 매수 판단 ---
+        ma_val_b = closes.rolling(ma_buy).mean().iloc[last_idx - off_ma_b]
+        cl_val_b = closes.iloc[last_idx - off_cl_b]
         
         is_buy = False
-        if buy_op == ">": is_buy = ma_val > cl_val
-        elif buy_op == "<": is_buy = ma_val < cl_val
+        if buy_op == ">": is_buy = ma_val_b > cl_val_b
+        elif buy_op == "<": is_buy = ma_val_b < cl_val_b
         
-        # 2. 추세 필터
-        if use_trend and ma_s > 0 and ma_l > 0:
+        # 매수 추세
+        trend_ok = True
+        if (use_trend_buy or use_trend_sell) and ma_s > 0 and ma_l > 0:
             tr_s = closes.rolling(ma_s).mean().iloc[last_idx - off_s]
             tr_l = closes.rolling(ma_l).mean().iloc[last_idx - off_l]
-            if tr_s <= tr_l: is_buy = False
+            trend_ok = (tr_s >= tr_l)
             
-        label = "🔵 BUY" if is_buy else "⚪ WAIT"
+        if use_trend_buy and not trend_ok: is_buy = False
+        
+        # --- [2] 매도 판단 (복구됨) ---
+        is_sell = False
+        if sell_op != "OFF":
+            ma_val_s = closes.rolling(ma_sell).mean().iloc[last_idx - off_ma_s]
+            cl_val_s = closes.iloc[last_idx - off_cl_s]
+            
+            if sell_op == ">": is_sell = cl_val_s > ma_val_s
+            elif sell_op == "<": is_sell = cl_val_s < ma_val_s
+            
+            # 매도 역추세 (정배열이면 매도 안함 -> 역배열일 때만 매도)
+            if use_trend_sell and trend_ok: is_sell = False
+
+        # --- [3] 결과 라벨링 ---
+        label = "⚪ 관망"
+        if is_buy and is_sell: label = "⚠️ 중복"
+        elif is_buy: label = "🔵 매수진입"
+        elif is_sell: label = "🔴 매도청산"
+        
+        # 최근 매수일 (단순화: 현재 상태가 매수면 오늘 날짜)
         last_buy_date = df['Date'].iloc[last_idx].strftime("%m-%d") if is_buy else "-"
         
         return {"label": label, "last_buy": last_buy_date}
@@ -304,14 +330,12 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         just_bought = False
         exec_price, signal, reason, reason_detail = None, "HOLD", None, ""
         close_today = xC_trd[i]
-        # 매매 티커 데이터 (Open, High, Low)
         open_today = base["Open_trd"].iloc[i]
         low_today = base["Low_trd"].iloc[i]
         high_today = base["High_trd"].iloc[i]
 
         try:
             cl_b = x_sig[i - int(offset_cl_buy)]
-            # ma_b는 ma_buy_arr에서 가져옴
         except: 
             asset_curve.append(cash + position * close_today)
             continue
@@ -409,13 +433,13 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
                 current_stop_price = entry_price * (1 - stop_loss_pct / 100)
                 atr_info = f"(-{stop_loss_pct}%)"
             
-            # 손절 실행 (장중 저가 기준)
+            # 손절 실행
             if current_stop_price > 0 and low_today <= current_stop_price:
                 stop_hit = True
                 exec_price = open_today if open_today < current_stop_price else current_stop_price
                 reason_detail = f"손절가 {current_stop_price:.2f} 도달 {atr_info}"
             
-            # 익절 실행 (장중 고가 기준)
+            # 익절 실행
             if take_profit_pct > 0 and not stop_hit:
                 tp_price = entry_price * (1 + take_profit_pct / 100)
                 if high_today >= tp_price: 
