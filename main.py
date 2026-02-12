@@ -175,7 +175,7 @@ trade_ticker = col2.text_input("매매 티커", key="trade_ticker_input")
 market_ticker = col3.text_input("시장 티커 (옵션)", key="market_ticker_input", help="예: SPY")
 
 col4, col5 = st.columns(2)
-start_date = col4.date_input("시작일", value=datetime.date(2020, 1, 1))
+start_date = col4.date_input("시작일", value=datetime.date(2020, 1, 1),min_value=datetime.date(1980, 1, 1))
 end_date = col5.date_input("종료일", value=datetime.date.today())
 
 # --- 사이드바 상세 설정 UI (전체 교체) ---
@@ -1166,6 +1166,7 @@ with tab6:
                             st.warning("EPS 추정치 데이터가 없습니다.")
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
+
 
 
 
