@@ -84,7 +84,20 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
                        use_market_filter=False, market_ticker="", market_ma_period=200, 
                        use_bollinger=False, bb_period=20, bb_std=2.0, bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈"):
-    if df.empty: st.warning("데이터 없음"); return
+    if df is None or df.empty: st.error("데이터 없음"); return
+    
+    # 1. 데이터 정렬 및 마지막 날짜 확인
+    df = df.copy().sort_values("Date").reset_index(drop=True)
+    last_row = df.iloc[-1]
+    last_date = pd.to_datetime(last_row['Date'])
+    
+    # 2. 날짜 안내 메시지 (오늘 날짜와 다르면 알려줌)
+    import datetime
+    diff_days = (datetime.datetime.now().date() - last_date.date()).days
+    if diff_days >= 1:
+        st.info(f"💡 장 시작 전입니다. **{last_date.strftime('%Y-%m-%d')} (전일 종가)** 기준으로 분석합니다.")
+    else:
+        st.caption(f"📅 기준일: **{last_date.strftime('%Y-%m-%d')}** (최신)")
     
     has_market = "Close_mkt" in df.columns
     ma_buy = int(ma_buy)
@@ -176,6 +189,13 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
+        # 1. 데이터 정렬
+        df = df.copy().sort_values("Date").reset_index(drop=True)
+        if len(df) < 60: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+        
+        # [핵심] 무조건 마지막 행(최신 데이터)을 기준으로 삼습니다.
+        idx_now = df.index[-1]
+        
         ma_buy = int(p.get("ma_buy", 20))
         ma_sell = int(p.get("ma_sell", 10))
         off_ma_b = int(p.get("offset_ma_buy", 0))
@@ -574,3 +594,4 @@ def apply_opt_params(row):
         for k, v in updates.items(): st.session_state[k] = v
         st.toast("✅ 설정이 적용되었습니다! 백테스트 탭을 확인하세요.")
     except Exception as e: st.error(f"설정 적용 오류: {e}")
+
