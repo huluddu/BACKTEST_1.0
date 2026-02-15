@@ -59,8 +59,9 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     trd["ATR"] = calculate_atr(trd, period=14)
 
     sig = sig.rename(columns={"Close": "Close_sig", "Open":"Open_sig", "High":"High_sig", "Low":"Low_sig"})
-    sig_cols = [c for c in ["Date", "Close_sig", "Open_sig", "High_sig", "Low_sig"] if c in sig.columns]
-    sig = sig[sig_cols]
+    # 필요한 컬럼만 추출 (KeyError 방지)
+    cols = [c for c in ["Date", "Close_sig", "Open_sig", "High_sig", "Low_sig"] if c in sig.columns]
+    sig = sig[cols]
     
     trd = trd.rename(columns={"Open": "Open_trd", "High": "High_trd", "Low": "Low_trd", "Close": "Close_trd", "ATR": "ATR"})
     
@@ -92,26 +93,28 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
         
     return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr
 
-# --- 시그널 체크 (Tab 1) ---
+# --- 시그널 체크 (상세) ---
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
                        use_market_filter=False, market_ticker="", market_ma_period=200, 
                        use_bollinger=False, bb_period=20, bb_std=2.0, bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈"):
     if df is None or df.empty: st.error("데이터 없음"); return
     
-    has_market = "Close_mkt" in df.columns
-    ma_buy = int(ma_buy)
-    ma_sell = int(ma_sell)
-    
+    # 1. 데이터 정렬 및 마지막 날짜 확인
     df = df.copy().sort_values("Date").reset_index(drop=True)
     last_row = df.iloc[-1]
     last_date = pd.to_datetime(last_row['Date'])
     
+    # 2. 날짜 안내 메시지
     diff_days = (datetime.datetime.now().date() - last_date.date()).days
     if diff_days >= 1:
         st.info(f"💡 장 시작 전입니다. **{last_date.strftime('%Y-%m-%d')} (전일 종가)** 기준으로 분석합니다.")
     else:
         st.caption(f"📅 기준일: **{last_date.strftime('%Y-%m-%d')}** (최신)")
-
+    
+    has_market = "Close_mkt" in df.columns
+    ma_buy = int(ma_buy)
+    ma_sell = int(ma_sell)
+    
     df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce") 
     df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
     df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
@@ -128,12 +131,10 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         df["MA_LONG"] = df["Close"].rolling(int(ma_compare_long)).mean()
     
     i = len(df) - 1
-    max_offset = max(int(offset_cl_buy), int(offset_ma_buy), int(offset_cl_sell), int(offset_ma_sell), int(offset_compare_short), int(offset_compare_long))
-    
-    if i - max_offset < 0:
-        st.error(f"데이터 부족 (최소 {max_offset}일 필요)"); return
-        
     try:
+        if i - max(int(offset_cl_buy), int(offset_ma_buy), int(offset_cl_sell), int(offset_ma_sell)) < 0:
+            st.error("데이터 부족"); return
+        
         market_ok = True
         if has_market and use_market_filter:
             market_ok = df["Close_mkt"].iloc[i] > df["MA_MKT"].iloc[i]
@@ -146,14 +147,9 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 
         if use_bollinger:
             bb_u, bb_m, bb_l = float(df["BB_UP"].iloc[i]), float(df["BB_MID"].iloc[i]), float(df["BB_LO"].iloc[i])
-            prev_cl = float(df["Close"].iloc[i-1])
-            
-            if "상단선" in str(bb_entry_type): 
-                buy_ok = prev_cl <= bb_u and cl_b > bb_u; cond_str = f"종가 > 상단 {bb_u:.2f} (돌파)"
-            elif "하단선" in str(bb_entry_type): 
-                buy_ok = cl_b < bb_l; cond_str = f"종가 < 하단 {bb_l:.2f}"
-            else: 
-                buy_ok = prev_cl <= bb_m and cl_b > bb_m; cond_str = f"종가 > 중심 {bb_m:.2f} (돌파)"
+            if "상단선" in str(bb_entry_type): buy_ok = cl_b > bb_u; cond_str = f"종가 > 상단 {bb_u:.2f}"
+            elif "하단선" in str(bb_entry_type): buy_ok = cl_b < bb_l; cond_str = f"종가 < 하단 {bb_l:.2f}"
+            else: buy_ok = cl_b > bb_m; cond_str = f"종가 > 중심 {bb_m:.2f}"
 
             if sell_operator == "OFF":
                 sell_ok = False; sell_cond_str = "OFF"
@@ -161,7 +157,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 if "상단선" in str(bb_exit_type): sell_ok = cl_s < bb_u; sell_cond_str = f"종가 < 상단 {bb_u:.2f}"
                 elif "하단선" in str(bb_exit_type): sell_ok = cl_s < bb_l; sell_cond_str = f"종가 < 하단 {bb_l:.2f}"
                 else: sell_ok = cl_s < bb_m; sell_cond_str = f"종가 < 중심 {bb_m:.2f}"
-        
         else:
             ma_b = float(df["MA_BUY"].iloc[i - int(offset_ma_buy)])
             ma_s = float(df["MA_SELL"].iloc[i - int(offset_ma_sell)])
@@ -170,51 +165,44 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
             if (use_trend_in_buy or use_trend_in_sell) and "MA_SHORT" in df.columns:
                 trend_ok = df["MA_SHORT"].iloc[i - int(offset_compare_short)] >= df["MA_LONG"].iloc[i - int(offset_compare_long)]
 
-            if buy_operator == ">": buy_base = (ma_b > cl_b) 
-            else: buy_base = (ma_b < cl_b)
+            if buy_operator == ">": buy_base = (cl_b > ma_b) # 기존 로직 복구
+            else: buy_base = (cl_b < ma_b)
             
             if sell_operator == "OFF":
                 sell_ok = False; sell_cond_str = "OFF"
             else:
-                if sell_operator == ">": sell_base = (ma_s > cl_s)
-                else: sell_base = (ma_s < cl_s)
+                if sell_operator == "<": sell_base = (cl_s < ma_s)
+                else: sell_base = (cl_s > ma_s)
                 
                 sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
-                sell_cond_str = f"이평 {ma_s:.2f} {sell_operator} 종가 {cl_s:.2f}"
+                sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
             
             buy_ok = (buy_base and trend_ok) if use_trend_in_buy else buy_base
-            cond_str = f"이평 {ma_b:.2f} {buy_operator} 종가 {cl_b:.2f}"
+            cond_str = f"종가 {cl_b:.2f} {buy_operator} 이평 {ma_b:.2f}"
 
         final_buy = buy_ok and market_ok
-        
         st.subheader(f"📌 시그널 진단")
         col1, col2 = st.columns(2)
         with col1:
-             st.markdown(f"**🟢 매수 조건**")
-             st.write(f"- 조건: {cond_str}")
-             if use_trend_in_buy and not use_bollinger: st.write(f"- 추세: {'✅ 정배열' if trend_ok else '❌ 역배열'}")
-             if use_market_filter: st.write(f"- 시장: {'✅ 상승장' if market_ok else '❌ 하락장'}")
+             st.write(f"💡 매수: {cond_str} → {'✅' if buy_ok else '❌'}")
+             if buy_ok and not market_ok: st.warning("⚠️ 시장 필터 미충족")
              st.info(f"결과: {'✅ 진입' if final_buy else '⏸ 대기'}")
-             
         with col2:
-             st.markdown(f"**🔴 매도 조건**")
-             st.write(f"- 조건: {sell_cond_str}")
-             if use_trend_in_sell and not use_bollinger: st.write(f"- 역추세: {'✅ 역배열' if not trend_ok else '❌ 정배열'}")
+             st.write(f"💡 매도: {sell_cond_str} → {'✅' if sell_ok else '❌'}")
              st.error(f"결과: {'✅ 청산' if sell_ok else '⏸ 보유'}")
         
         if final_buy and sell_ok:
-            st.warning("⚠️ 매수/매도 신호 동시 발생! (전략 점검 권장)")
+            st.warning("⚠️ 매수/매도 신호 동시 발생 (설정 확인 필요)")
 
-    except Exception as e: st.error(f"분석 중 오류: {e}")
+    except Exception as e: st.error(f"오류: {e}")
 
-# --- 프리셋 분석 (Tab 2) ---
 def summarize_signal_today(df, p):
-    if df is None or df.empty: return {"label": "N/A", "last_buy": "-"}
+    if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
         df = df.copy().sort_values("Date").reset_index(drop=True)
-        if len(df) < 60: return {"label": "데이터부족", "last_buy": "-"}
+        if len(df) < 60: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
         
-        last_idx = df.index[-1]
+        idx_now = df.index[-1] # 마지막 행
         
         ma_buy = int(p.get("ma_buy", 20))
         ma_sell = int(p.get("ma_sell", 10))
@@ -224,63 +212,84 @@ def summarize_signal_today(df, p):
         off_cl_s = int(p.get("offset_cl_sell", 0))
         buy_op = str(p.get("buy_operator", ">"))
         sell_op = str(p.get("sell_operator", "<"))
-        
         use_trend_buy = bool(p.get("use_trend_in_buy", False))
         use_trend_sell = bool(p.get("use_trend_in_sell", False))
-        ma_s = int(p.get("ma_compare_short", 0) or 0)
-        ma_l = int(p.get("ma_compare_long", 0) or 0)
-        off_s = int(p.get("offset_compare_short", 0))
-        off_l = int(p.get("offset_compare_long", 0))
+        ma_comp_s = int(p.get("ma_compare_short", 0) or 0)
+        ma_comp_l = int(p.get("ma_compare_long", 0) or 0)
+        off_comp_s = int(p.get("offset_compare_short", 0))
+        off_comp_l = int(p.get("offset_compare_long", 0))
+        use_bollinger = bool(p.get("use_bollinger", False))
         
-        use_market = bool(p.get("use_market_filter", False))
-        m_ticker = str(p.get("market_ticker", "SPY"))
-        m_period = int(p.get("market_ma_period", 200))
+        df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+        
+        if (use_trend_buy or use_trend_sell) and ma_comp_s > 0 and ma_comp_l > 0:
+            df["MA_COMP_S"] = df["Close"].rolling(ma_comp_s).mean()
+            df["MA_COMP_L"] = df["Close"].rolling(ma_comp_l).mean()
 
-        closes = pd.to_numeric(df["Close"], errors='coerce')
+        if use_bollinger:
+            bb_p = int(p.get("bb_period", 20))
+            bb_s = float(p.get("bb_std", 2.0))
+            _, u, l = calculate_bollinger_bands(df["Close"], bb_p, bb_s)
+            mid = df["Close"].rolling(bb_p).mean()
+            df["BB_UP"], df["BB_LO"], df["BB_MID"] = u, l, mid
+        else:
+            df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
+            df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
+
+        last_buy_date, last_sell_date = "-", "-"
         
-        ma_val_b = closes.rolling(ma_buy).mean().iloc[last_idx - off_ma_b]
-        cl_val_b = closes.iloc[last_idx - off_cl_b]
-        
-        is_buy = False
-        if buy_op == ">": is_buy = ma_val_b > cl_val_b 
-        elif buy_op == "<": is_buy = ma_val_b < cl_val_b 
-        
-        trend_ok = True
-        if (use_trend_buy or use_trend_sell) and ma_s > 0 and ma_l > 0:
-            tr_s = closes.rolling(ma_s).mean().iloc[last_idx - off_s]
-            tr_l = closes.rolling(ma_l).mean().iloc[last_idx - off_l]
-            trend_ok = (tr_s >= tr_l)
-        if use_trend_buy and not trend_ok: is_buy = False
-        
-        if is_buy and use_market and m_ticker:
+        def _check(i, type_):
+            if i < 60: return False
             try:
-                end_d = df['Date'].iloc[-1]
-                start_d = end_d - datetime.timedelta(days=m_period * 2 + 100)
-                mkt_df = get_data(m_ticker, start_d, end_d)
-                if not mkt_df.empty:
-                    mkt_ma = mkt_df['Close'].rolling(m_period).mean().iloc[-1]
-                    if mkt_df['Close'].iloc[-1] < mkt_ma: is_buy = False
-            except: pass
+                if type_ == 'sell' and sell_op == "OFF": return False
 
-        is_sell = False
-        if sell_op != "OFF":
-            ma_val_s = closes.rolling(ma_sell).mean().iloc[last_idx - off_ma_s]
-            cl_val_s = closes.iloc[last_idx - off_cl_s]
-            if sell_op == ">": is_sell = ma_val_s > cl_val_s 
-            elif sell_op == "<": is_sell = ma_val_s < cl_val_s 
-            
-            if use_trend_sell and trend_ok: is_sell = False
+                trend_ok = True
+                if (use_trend_buy or use_trend_sell) and "MA_COMP_S" in df.columns:
+                    s_val = df["MA_COMP_S"].iloc[i - off_comp_s]
+                    l_val = df["MA_COMP_L"].iloc[i - off_comp_l]
+                    trend_ok = (s_val >= l_val)
 
-        label = "⚪ 관망"
-        if is_buy and is_sell: label = "⚠️ 중복"
-        elif is_buy: label = "🔵 매수진입"
-        elif is_sell: label = "🔴 매도청산"
+                if use_bollinger:
+                    bb_entry = str(p.get("bb_entry_type", ""))
+                    bb_exit = str(p.get("bb_exit_type", ""))
+                    cl = df["Close"].iloc[i - (off_cl_b if type_=='buy' else off_cl_s)]
+                    if type_ == 'buy':
+                        if "상단선" in bb_entry: return cl > df["BB_UP"].iloc[i-off_cl_b]
+                        elif "하단선" in bb_entry: return cl < df["BB_LO"].iloc[i-off_cl_b]
+                        else: return cl > df["BB_MID"].iloc[i-off_cl_b]
+                    else:
+                        if "상단선" in bb_exit: return cl < df["BB_UP"].iloc[i-off_cl_s]
+                        elif "하단선" in bb_exit: return cl < df["BB_LO"].iloc[i-off_cl_s]
+                        else: return cl < df["BB_MID"].iloc[i-off_cl_s]
+                else:
+                    cl = df["Close"].iloc[i - (off_cl_b if type_=='buy' else off_cl_s)]
+                    ma = df["MA_BUY"].iloc[i - off_ma_b] if type_=='buy' else df["MA_SELL"].iloc[i - off_ma_s]
+                    if type_ == 'buy':
+                        return ((cl > ma) if buy_op == ">" else (cl < ma)) and (trend_ok if use_trend_buy else True)
+                    else:
+                        return ((cl < ma) if sell_op == "<" else (cl > ma)) and ((not trend_ok) if use_trend_sell else True)
+            except: return False
+
+        is_buy_now = _check(idx_now, 'buy')
+        is_sell_now = _check(idx_now, 'sell')
         
-        last_buy_date = df['Date'].iloc[last_idx].strftime("%m-%d") if is_buy else "-"
-        return {"label": label, "last_buy": last_buy_date}
-    except: return {"label": "Error", "last_buy": "-"}
+        label = "관망"
+        if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
+        elif is_buy_now: label = "매수진입"
+        elif is_sell_now: label = "매도청산"
+        
+        search_range = min(365, len(df)-60)
+        for k in range(search_range):
+            curr_idx = idx_now - k
+            d_str = df["Date"].iloc[curr_idx].strftime("%Y-%m-%d")
+            if last_buy_date == "-" and _check(curr_idx, 'buy'): last_buy_date = d_str
+            if last_sell_date == "-" and _check(curr_idx, 'sell'): last_sell_date = d_str
+            if last_buy_date != "-" and last_sell_date != "-": break
+        
+        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
+    except: return {"label": "오류", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
-# --- 백테스트 엔진 (수정됨: 현재 보유중 처리 추가) ---
+# --- [수정된 부분] 백테스트 함수 (그래프 끊김 방지 & 보유분 반영) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
                   use_rsi_filter=False, rsi_period=14, rsi_min=30, rsi_max=70,
                   use_market_filter=False, x_mkt=None, ma_mkt_arr=None,
@@ -338,23 +347,23 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
                 t_ok = s_val >= l_val
 
             if buy_operator == ">":
-                buy_cond = (ma_b > cl_b) 
-                buy_msg = f"이평({ma_b:.2f}) > 종가({cl_b:.2f})"
+                buy_cond = (cl_b > ma_b) 
+                buy_msg = f"종가 > 이평"
             else:
-                buy_cond = (ma_b < cl_b) 
-                buy_msg = f"이평({ma_b:.2f}) < 종가({cl_b:.2f})"
+                buy_cond = (cl_b < ma_b) 
+                buy_msg = f"종가 < 이평"
             
             if use_trend_in_buy and not t_ok: buy_cond = False; buy_msg += " (추세X)"
 
             if sell_operator == "OFF": sell_cond = False
             else:
                 cl_s = x_sig[i - int(offset_cl_sell)]
-                if sell_operator == ">":
-                    sell_cond = (ma_s > cl_s) 
-                    sell_msg = f"이평({ma_s:.2f}) > 종가({cl_s:.2f})"
+                if sell_operator == "<":
+                    sell_cond = (cl_s < ma_s) 
+                    sell_msg = f"종가 < 이평"
                 else:
-                    sell_cond = (ma_s < cl_s) 
-                    sell_msg = f"이평({ma_s:.2f}) < 종가({cl_s:.2f})"
+                    sell_cond = (cl_s > ma_s) 
+                    sell_msg = f"종가 > 이평"
                 
                 if use_trend_in_sell and t_ok: sell_cond = False; sell_msg += " (역추세X)"
 
@@ -411,25 +420,37 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         if signal != "HOLD":
             logs.append({"날짜": base["Date"].iloc[i], "종가": close_today, "신호": signal, "체결가": exec_price, "자산": total, "이유": reason, "상세내용": reason_detail, "손절발동": stop_hit, "익절발동": take_hit})
 
-    # --- [NEW] 백테스트 종료 시점 보유 물량 처리 ---
+    # [중요] 종료 시점 보유 처리
     if position > 0:
-        last_price = x_trd[-1] # 마지막 종가
-        final_equity = cash + (position * last_price)
-        current_profit = (last_price - entry_price) / entry_price * 100
-        
+        last_price = x_trd[-1]
+        final_val = cash + (position * last_price)
+        current_pnl = (last_price - entry_price) / entry_price * 100
         logs.append({
             "날짜": base["Date"].iloc[-1],
             "종가": last_price,
             "신호": "보유중 (Open)",
             "체결가": last_price,
-            "자산": final_equity,
-            "이유": "현재 보유",
-            "상세내용": f"평가손익: {current_profit:.2f}%",
+            "자산": final_val,
+            "이유": "현재보유",
+            "상세내용": f"평가손익: {current_pnl:.2f}%",
             "손절발동": False, "익절발동": False
         })
+        # 그래프 마지막 값을 현재 평가액으로 업데이트
+        if asset_curve: asset_curve[-1] = final_val
 
     if not logs: return {}
     s = pd.Series(asset_curve)
+    
+    # [그래프 끊김 방지] 강제로 길이 맞춤
+    chart_base = base.iloc[idx0:].reset_index(drop=True)
+    if len(asset_curve) > len(chart_base):
+        asset_curve = asset_curve[:len(chart_base)]
+    elif len(asset_curve) < len(chart_base):
+        last_val = asset_curve[-1] if asset_curve else initial_cash
+        asset_curve += [last_val] * (len(chart_base) - len(asset_curve))
+        
+    chart_base["Total_Assets"] = asset_curve # 이 부분이 있어야 그래프가 그려짐
+    
     g_profit, g_loss, wins = 0, 0, 0
     last_bp = None
     for r in logs:
@@ -443,7 +464,24 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     pf = (g_profit / g_loss) if g_loss > 0 else 999.0
     win_rate = (wins / total_sells * 100) if total_sells > 0 else 0.0
 
-    return {"수익률 (%)": round((asset_curve[-1] - initial_cash)/initial_cash*100, 2), "MDD (%)": round(((s - s.cummax()) / s.cummax()).min() * 100, 2), "승률 (%)": round(win_rate, 2), "Profit Factor": round(pf, 2), "총 매매 횟수": total_sells, "매매 로그": logs, "차트데이터": {"ma_buy_arr": ma_buy_arr[idx0:], "ma_sell_arr": ma_sell_arr[idx0:], "base": base.iloc[idx0:].reset_index(drop=True), "bb_up": bb_up[idx0:] if use_bollinger else None, "bb_lo": bb_lo[idx0:] if use_bollinger else None}}
+    # 마지막 자산값으로 수익률 계산
+    final_equity = asset_curve[-1] if asset_curve else initial_cash
+    
+    return {
+        "수익률 (%)": round((final_equity - initial_cash)/initial_cash*100, 2),
+        "MDD (%)": round(((s - s.cummax()) / s.cummax()).min() * 100, 2),
+        "승률 (%)": round(win_rate, 2),
+        "Profit Factor": round(pf, 2),
+        "총 매매 횟수": total_sells,
+        "매매 로그": logs,
+        "차트데이터": {
+            "ma_buy_arr": ma_buy_arr[idx0:], 
+            "ma_sell_arr": ma_sell_arr[idx0:], 
+            "base": chart_base, 
+            "bb_up": bb_up[idx0:] if use_bollinger else None, 
+            "bb_lo": bb_lo[idx0:] if use_bollinger else None
+        }
+    }
 
 def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, split_ratio, choices_dict, n_trials=50, initial_cash=5000000, fee_bps=0, slip_bps=0, strategy_behavior="1", min_hold_days=0, constraints=None, **kwargs):
     ma_pool = set([5, 10, 20, 60, 120])
