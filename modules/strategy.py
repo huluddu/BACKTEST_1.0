@@ -34,6 +34,7 @@ def calculate_indicators(close_data, rsi_period):
     return rsi.to_numpy()
 
 def calculate_atr(df, period=14):
+    if df.empty: return pd.Series(dtype=float)
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -103,7 +104,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
     ma_buy = int(ma_buy)
     ma_sell = int(ma_sell)
     
-    df = df.copy().sort_values("Date").reset_index(drop=True)
     df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce") 
     df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
     df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
@@ -174,7 +174,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         if buy_ok and not market_ok: st.warning("⚠️ 시장 필터 미충족")
         st.write(f"💡 매도: {sell_cond_str} → {'✅' if sell_ok else '❌'}")
         
-        # [수정] 매수/매도 동시 발생 시 명확하게 표시
         if final_buy and sell_ok:
             st.warning("⚠️ 매수/매도 신호 중복 (전략 점검 필요)")
         elif final_buy:
@@ -212,8 +211,6 @@ def summarize_signal_today(df, p):
         off_comp_l = int(p.get("offset_compare_long", 0))
         use_bollinger = bool(p.get("use_bollinger", False))
         
-        df = df.copy().sort_values("Date").reset_index(drop=True)
-        if len(df) < 120: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
         df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
         
         if (use_trend_buy or use_trend_sell) and ma_comp_s > 0 and ma_comp_l > 0:
@@ -231,7 +228,6 @@ def summarize_signal_today(df, p):
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
         last_buy_date, last_sell_date = "-", "-"
-        idx_now = len(df) - 1
         
         def _check(i, type_):
             if i < 60: return False
@@ -268,7 +264,6 @@ def summarize_signal_today(df, p):
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        # [수정] 라벨 표시 로직 수정 (중복 시그널 체크)
         label = "관망"
         if is_buy_now and is_sell_now:
             label = "⚠️매수/매도 중복"
@@ -288,7 +283,7 @@ def summarize_signal_today(df, p):
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except: return {"label": "오류", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
-# --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
+# --- 백테스트 함수 (수정됨: 보유중 처리 로직 추가) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
                   use_rsi_filter=False, rsi_period=14, rsi_min=30, rsi_max=70,
                   use_market_filter=False, x_mkt=None, ma_mkt_arr=None,
@@ -299,11 +294,10 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     n = len(base)
     if n == 0: return {}
     
-    ma_buy_arr, ma_sell_arr = ma_dict_sig.get(int(ma_buy)), ma_dict_sig.get(int(ma_sell))
-    ma_s_arr = ma_dict_sig.get(int(ma_compare_short)) if ma_compare_short else None
-    ma_l_arr = ma_dict_sig.get(int(ma_compare_long)) if ma_compare_long else None
+    ma_buy_arr = ma_dict_sig.get(int(ma_buy))
+    ma_sell_arr = ma_dict_sig.get(int(ma_sell))
     rsi_arr = calculate_indicators(x_sig, int(rsi_period)) if use_rsi_filter else None
-    atr_arr = base["ATR"].to_numpy(dtype=float) if "ATR" in base.columns else np.zeros(n)
+    atr_arr = base["ATR"].to_numpy(dtype=float) if use_atr_stop and "ATR" in base.columns else np.zeros(n)
     
     bb_up, bb_mid, bb_lo = None, None, None
     if use_bollinger: bb_mid, bb_up, bb_lo = calculate_bollinger_bands(x_sig, bb_period, bb_std)
@@ -463,7 +457,6 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         total = cash + (position * close_today)
         asset_curve.append(total)
         
-        # [NEW] 로그에 상세 내용(reason_detail) 포함
         if signal != "HOLD":
             logs.append({
                 "날짜": base["Date"].iloc[i], "종가": close_today, "신호": signal, 
@@ -471,8 +464,37 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
                 "상세내용": reason_detail, "손절발동": stop_hit, "익절발동": take_hit
             })
 
+    # [여기부터 추가됨] 보유중인 물량 평가 및 그래프 연결
+    if position > 0:
+        last_price = x_trd[-1]
+        final_equity = cash + (position * last_price)
+        current_profit_pct = (last_price - entry_price) / entry_price * 100
+        logs.append({
+            "날짜": base["Date"].iloc[-1],
+            "종가": last_price,
+            "신호": "보유중 (Open)",
+            "체결가": last_price,
+            "자산": final_equity,
+            "이유": "현재 보유",
+            "상세내용": f"평가손익: {current_profit_pct:.2f}%",
+            "손절발동": False, "익절발동": False
+        })
+        # 그래프 마지막 값을 현재 평가액으로 업데이트
+        if asset_curve: asset_curve[-1] = final_equity
+
     if not logs: return {}
     s = pd.Series(asset_curve)
+    
+    # [그래프 끊김 방지] 강제로 길이 맞춤
+    chart_base = base.iloc[idx0:].reset_index(drop=True)
+    if len(asset_curve) > len(chart_base):
+        asset_curve = asset_curve[:len(chart_base)]
+    elif len(asset_curve) < len(chart_base):
+        # 부족하면 마지막 값으로 채움
+        last_val = asset_curve[-1] if asset_curve else initial_cash
+        asset_curve += [last_val] * (len(chart_base) - len(asset_curve))
+        
+    chart_base["Total_Assets"] = asset_curve
     
     g_profit, g_loss, wins = 0, 0, 0
     last_buy_price = None
@@ -488,14 +510,17 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     pf = (g_profit / g_loss) if g_loss > 0 else 999.0
     win_rate = (wins / total_sells * 100) if total_sells > 0 else 0.0
 
+    # 마지막 자산값으로 수익률 계산
+    final_equity = asset_curve[-1] if asset_curve else initial_cash
+
     return {
-        "수익률 (%)": round((asset_curve[-1] - initial_cash)/initial_cash*100, 2),
+        "수익률 (%)": round((final_equity - initial_cash)/initial_cash*100, 2),
         "MDD (%)": round(((s - s.cummax()) / s.cummax()).min() * 100, 2),
         "승률 (%)": round(win_rate, 2),
         "Profit Factor": round(pf, 2),
         "총 매매 횟수": total_sells,
         "매매 로그": logs,
-        "차트데이터": {"ma_buy_arr": ma_buy_arr[idx0:], "ma_sell_arr": ma_sell_arr[idx0:], "base": base.iloc[idx0:].reset_index(drop=True), "bb_up": bb_up[idx0:] if use_bollinger else None, "bb_lo": bb_lo[idx0:] if use_bollinger else None}
+        "차트데이터": {"ma_buy_arr": ma_buy_arr[idx0:], "ma_sell_arr": ma_sell_arr[idx0:], "base": chart_base, "bb_up": bb_up[idx0:] if use_bollinger else None, "bb_lo": bb_lo[idx0:] if use_bollinger else None}
     }
 
 def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, split_ratio, choices_dict, n_trials=50, initial_cash=5000000, fee_bps=0, slip_bps=0, strategy_behavior="1", min_hold_days=0, constraints=None, **kwargs):
@@ -505,7 +530,6 @@ def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, sp
             try:
                 if int(v) > 0: ma_pool.add(int(v))
             except: pass
-            
     base_full, x_sig_full, x_trd_full, ma_dict, _, _ = prepare_base(signal_ticker, trade_ticker, "", start_date, end_date, list(ma_pool))
     if base_full is None: return pd.DataFrame()
     
@@ -517,11 +541,7 @@ def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, sp
     results = []
     defaults = {"ma_buy": 50, "ma_sell": 10, "offset_ma_buy": 0, "offset_ma_sell": 0, "offset_cl_buy":0, "offset_cl_sell":0, "buy_operator":">", "sell_operator":"<"}
     constraints = constraints or {}
-    min_tr = constraints.get("min_trades", 0)
-    min_wr = constraints.get("min_winrate", 0)
-    limit_mdd = constraints.get("limit_mdd", 0)
-    min_train_r = constraints.get("min_train_ret", -999.0)
-    min_test_r = constraints.get("min_test_ret", -999.0)
+    min_tr = constraints.get("min_trades", 0); min_wr = constraints.get("min_winrate", 0); limit_mdd = constraints.get("limit_mdd", 0); min_train_r = constraints.get("min_train_ret", -999.0); min_test_r = constraints.get("min_test_ret", -999.0)
 
     for _ in range(int(n_trials)):
         p = {}
@@ -529,68 +549,27 @@ def auto_search_train_test(signal_ticker, trade_ticker, start_date, end_date, sp
             arr = choices_dict[k]
             p[k] = random.choice(arr) if arr else defaults.get(k)
         
-        common_args = {
-            "ma_dict_sig": ma_dict,
-            "ma_buy": int(p.get('ma_buy', 50)), "offset_ma_buy": int(p.get('offset_ma_buy', 0)),
-            "ma_sell": int(p.get('ma_sell', 10)), "offset_ma_sell": int(p.get('offset_ma_sell', 0)),
-            "offset_cl_buy": int(p.get('offset_cl_buy', 0)), "offset_cl_sell": int(p.get('offset_cl_sell', 0)),
-            "ma_compare_short": int(p.get('ma_compare_short')) if p.get('ma_compare_short') else 0,
-            "ma_compare_long": int(p.get('ma_compare_long')) if p.get('ma_compare_long') else 0,
-            "offset_compare_short": int(p.get('offset_compare_short', 0)), "offset_compare_long": int(p.get('offset_compare_long', 0)),
-            "initial_cash": initial_cash, "stop_loss_pct": float(p.get('stop_loss_pct', 0)), "take_profit_pct": float(p.get('take_profit_pct', 0)),
-            "strategy_behavior": strategy_behavior, "min_hold_days": min_hold_days, "fee_bps": fee_bps, "slip_bps": slip_bps,
-            "use_trend_in_buy": p.get('use_trend_in_buy', True), "use_trend_in_sell": p.get('use_trend_in_sell', False),
-            "buy_operator": p.get('buy_operator', '>'), "sell_operator": p.get('sell_operator', '<'),
-            "use_atr_stop": p.get('use_atr_stop', False), "atr_multiplier": p.get('atr_multiplier', 2.0)
-        }
+        common_args = {"ma_dict_sig": ma_dict, "ma_buy": int(p.get('ma_buy', 50)), "offset_ma_buy": int(p.get('offset_ma_buy', 0)), "ma_sell": int(p.get('ma_sell', 10)), "offset_ma_sell": int(p.get('offset_ma_sell', 0)), "offset_cl_buy": int(p.get('offset_cl_buy', 0)), "offset_cl_sell": int(p.get('offset_cl_sell', 0)), "ma_compare_short": int(p.get('ma_compare_short')) if p.get('ma_compare_short') else 0, "ma_compare_long": int(p.get('ma_compare_long')) if p.get('ma_compare_long') else 0, "offset_compare_short": int(p.get('offset_compare_short', 0)), "offset_compare_long": int(p.get('offset_compare_long', 0)), "initial_cash": initial_cash, "stop_loss_pct": float(p.get('stop_loss_pct', 0)), "take_profit_pct": float(p.get('take_profit_pct', 0)), "strategy_behavior": strategy_behavior, "min_hold_days": min_hold_days, "fee_bps": fee_bps, "slip_bps": slip_bps, "use_trend_in_buy": p.get('use_trend_in_buy', True), "use_trend_in_sell": p.get('use_trend_in_sell', False), "buy_operator": p.get('buy_operator', '>'), "sell_operator": p.get('sell_operator', '<'), "use_atr_stop": p.get('use_atr_stop', False), "atr_multiplier": p.get('atr_multiplier', 2.0)}
 
         res_full = backtest_fast(base_full, x_sig_full, x_trd_full, **common_args)
         if not res_full: continue
-        
         if res_full.get('총 매매 횟수', 0) < min_tr: continue
         if res_full.get('승률 (%)', 0) < min_wr: continue
         if limit_mdd > 0 and res_full.get('MDD (%)', 0) < -abs(limit_mdd): continue
 
         res_tr = backtest_fast(base_tr, x_sig_tr, x_trd_tr, **common_args)
         if res_tr.get('수익률 (%)', -999) < min_train_r: continue
-
         res_te = backtest_fast(base_te, x_sig_te, x_trd_te, **common_args)
         if res_te.get('수익률 (%)', -999) < min_test_r: continue
 
-        row = {
-            "Full_수익률(%)": res_full.get('수익률 (%)'), "Full_MDD(%)": res_full.get('MDD (%)'), "Full_승률(%)": res_full.get('승률 (%)'), "Full_총매매": res_full.get('총 매매 횟수'),
-            "Test_수익률(%)": res_te.get('수익률 (%)'), "Test_MDD(%)": res_te.get('MDD (%)'),
-            "Train_수익률(%)": res_tr.get('수익률 (%)'),
-            "ma_buy": p.get('ma_buy'), "offset_ma_buy": p.get('offset_ma_buy'), "offset_cl_buy": p.get('offset_cl_buy'), "buy_operator": p.get('buy_operator'),
-            "ma_sell": p.get('ma_sell'), "offset_ma_sell": p.get('offset_ma_sell'), "offset_cl_sell": p.get('offset_cl_sell'), "sell_operator": p.get('sell_operator'),
-            "use_trend_in_buy": p.get('use_trend_in_buy'), "use_trend_in_sell": p.get('use_trend_in_sell'),
-            "ma_compare_short": p.get('ma_compare_short'), "ma_compare_long": p.get('ma_compare_long'), "offset_compare_short": p.get('offset_compare_short'), "offset_compare_long": p.get('offset_compare_long'),
-            "stop_loss_pct": p.get('stop_loss_pct'), "take_profit_pct": p.get('take_profit_pct'),
-            "use_atr_stop": p.get('use_atr_stop'), "atr_multiplier": p.get('atr_multiplier')
-        }
+        row = {"Full_수익률(%)": res_full.get('수익률 (%)'), "Full_MDD(%)": res_full.get('MDD (%)'), "Full_승률(%)": res_full.get('승률 (%)'), "Full_총매매": res_full.get('총 매매 횟수'), "Test_수익률(%)": res_te.get('수익률 (%)'), "Test_MDD(%)": res_te.get('MDD (%)'), "Train_수익률(%)": res_tr.get('수익률 (%)'), "ma_buy": p.get('ma_buy'), "offset_ma_buy": p.get('offset_ma_buy'), "offset_cl_buy": p.get('offset_cl_buy'), "buy_operator": p.get('buy_operator'), "ma_sell": p.get('ma_sell'), "offset_ma_sell": p.get('offset_ma_sell'), "offset_cl_sell": p.get('offset_cl_sell'), "sell_operator": p.get('sell_operator'), "use_trend_in_buy": p.get('use_trend_in_buy'), "use_trend_in_sell": p.get('use_trend_in_sell'), "ma_compare_short": p.get('ma_compare_short'), "ma_compare_long": p.get('ma_compare_long'), "offset_compare_short": p.get('offset_compare_short'), "offset_compare_long": p.get('offset_compare_long'), "stop_loss_pct": p.get('stop_loss_pct'), "take_profit_pct": p.get('take_profit_pct'), "use_atr_stop": p.get('use_atr_stop'), "atr_multiplier": p.get('atr_multiplier')}
         results.append(row)
         
     return pd.DataFrame(results)
 
 def apply_opt_params(row):
     try:
-        updates = {
-            "ma_buy": int(row["ma_buy"]), "offset_ma_buy": int(row["offset_ma_buy"]),
-            "offset_cl_buy": int(row["offset_cl_buy"]), "buy_operator": str(row["buy_operator"]),
-            "ma_sell": int(row["ma_sell"]), "offset_ma_sell": int(row["offset_ma_sell"]),
-            "offset_cl_sell": int(row["offset_cl_sell"]), "sell_operator": str(row["sell_operator"]),
-            "use_trend_in_buy": bool(row["use_trend_in_buy"]), "use_trend_in_sell": bool(row["use_trend_in_sell"]),
-            "ma_compare_short": int(row["ma_compare_short"]) if not pd.isna(row["ma_compare_short"]) else 20,
-            "ma_compare_long": int(row["ma_compare_long"]) if not pd.isna(row["ma_compare_long"]) else 50,
-            "offset_compare_short": int(row["offset_compare_short"]),
-            "offset_compare_long": int(row["offset_compare_long"]),
-            "stop_loss_pct": float(row["stop_loss_pct"]),
-            "take_profit_pct": float(row["take_profit_pct"]),
-            "use_atr_stop": bool(row["use_atr_stop"]) if "use_atr_stop" in row else False,
-            "atr_multiplier": float(row["atr_multiplier"]) if "atr_multiplier" in row else 2.0,
-            "auto_run_trigger": True,
-            "preset_name_selector": "직접 설정"
-        }
+        updates = {"ma_buy": int(row["ma_buy"]), "offset_ma_buy": int(row["offset_ma_buy"]), "offset_cl_buy": int(row["offset_cl_buy"]), "buy_operator": str(row["buy_operator"]), "ma_sell": int(row["ma_sell"]), "offset_ma_sell": int(row["offset_ma_sell"]), "offset_cl_sell": int(row["offset_cl_sell"]), "sell_operator": str(row["sell_operator"]), "use_trend_in_buy": bool(row["use_trend_in_buy"]), "use_trend_in_sell": bool(row["use_trend_in_sell"]), "ma_compare_short": int(row["ma_compare_short"]) if not pd.isna(row["ma_compare_short"]) else 20, "ma_compare_long": int(row["ma_compare_long"]) if not pd.isna(row["ma_compare_long"]) else 50, "offset_compare_short": int(row["offset_compare_short"]), "offset_compare_long": int(row["offset_compare_long"]), "stop_loss_pct": float(row["stop_loss_pct"]), "take_profit_pct": float(row["take_profit_pct"]), "use_atr_stop": bool(row["use_atr_stop"]) if "use_atr_stop" in row else False, "atr_multiplier": float(row["atr_multiplier"]) if "atr_multiplier" in row else 2.0, "auto_run_trigger": True, "preset_name_selector": "직접 설정"}
         for k, v in updates.items(): st.session_state[k] = v
         st.toast("✅ 설정이 적용되었습니다! 백테스트 탭을 확인하세요.")
     except Exception as e: st.error(f"설정 적용 오류: {e}")
