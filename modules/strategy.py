@@ -48,7 +48,7 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     import datetime
     import pandas as pd
     
-    # 🛡️ 방어막 1: 종료일 하루 짤리는 현상 방지 (+1일)
+    # 1. 종료일 하루 잘리는 현상 방지 (+1일)
     end_date_adj = pd.to_datetime(end_date) + datetime.timedelta(days=1)
     end_date_str = end_date_adj.strftime("%Y-%m-%d")
     
@@ -61,10 +61,17 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     sig = sig.sort_values("Date")
     trd = trd.sort_values("Date")
     
-    # 🛡️ 방어막 2: 야후 파이낸스 주말(토=5, 일=6) 가짜 캔들 삭제 (유지!)
     sig['Date'] = pd.to_datetime(sig['Date'])
-    sig = sig[~sig['Date'].dt.dayofweek.isin([5, 6])]
     trd['Date'] = pd.to_datetime(trd['Date'])
+    
+    # 🛡️ [핵심 방어막] 야후 파이낸스 유령 데이터(월요일) 강제 절단
+    # 사용자가 원래 지정한 end_date보다 미래인 날짜가 껴있으면 싹둑 자릅니다.
+    target_end_date = pd.to_datetime(end_date)
+    sig = sig[sig['Date'] <= target_end_date]
+    trd = trd[trd['Date'] <= target_end_date]
+    
+    # 🛡️ [유지] 혹시 모를 주말(토=5, 일=6) 가짜 캔들 삭제
+    sig = sig[~sig['Date'].dt.dayofweek.isin([5, 6])]
     trd = trd[~trd['Date'].dt.dayofweek.isin([5, 6])]
 
     # ATR 계산
@@ -80,8 +87,8 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
         mkt = get_data(market_ticker, start_date, end_date_str)
         if not mkt.empty:
             mkt = mkt.sort_values("Date")
-            # 시장 데이터도 주말 캔들 삭제
             mkt['Date'] = pd.to_datetime(mkt['Date'])
+            mkt = mkt[mkt['Date'] <= target_end_date] # 시장 데이터도 똑같이 절단
             mkt = mkt[~mkt['Date'].dt.dayofweek.isin([5, 6])]
             mkt = mkt.rename(columns={"Close": "Close_mkt"})[["Date", "Close_mkt"]]
             base = pd.merge(base, mkt, on="Date", how="inner")
@@ -99,8 +106,7 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     for w in sorted(set([int(w) for w in ma_pool if w and w > 0])):
         ma_dict_sig[w] = _fast_ma(x_sig, w)
         
-    return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr
-    
+    return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr    
 # --- 시그널 체크 (상세) ---
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
                        use_market_filter=False, market_ticker="", market_ma_period=200, 
