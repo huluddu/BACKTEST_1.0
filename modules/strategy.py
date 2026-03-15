@@ -150,6 +150,16 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
     if ma_compare_short and ma_compare_long:
         df["MA_SHORT"] = df["Close"].rolling(int(ma_compare_short)).mean()
         df["MA_LONG"] = df["Close"].rolling(int(ma_compare_long)).mean()
+
+    # [복구] 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
+    import datetime
+    last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
+    today = datetime.datetime.now().date()
+    
+    if last_date < today:
+        dummy_row = df.iloc[-1:].copy() # 지표 계산이 끝난 금요일 캔들을 그대로 복사
+        dummy_row['Date'] = pd.to_datetime(today)
+        df = pd.concat([df, dummy_row], ignore_index=True)
     
     i = len(df) - 1
     try:
@@ -268,6 +278,16 @@ def summarize_signal_today(df, p):
         else:
             df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
+
+        # [복구] 프리셋 탭: 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
+        import datetime
+        last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
+        today = datetime.datetime.now().date()
+        
+        if last_date < today:
+            dummy_row = df.iloc[-1:].copy()
+            dummy_row['Date'] = pd.to_datetime(today)
+            df = pd.concat([df, dummy_row], ignore_index=True)
 
         last_buy_date, last_sell_date = "-", "-"
 
