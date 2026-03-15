@@ -45,8 +45,15 @@ def calculate_atr(df, period=14):
 # --- 데이터 준비 ---
 @st.cache_data(show_spinner=False, ttl=1800)
 def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool, market_ma_period=200):
-    sig = get_data(signal_ticker, start_date, end_date).sort_values("Date")
-    trd = get_data(trade_ticker,  start_date, end_date).sort_values("Date")
+    
+    # 👇 [추가됨] 종료일 미포함 버그 해결을 위해 날짜에 하루를 강제로 더합니다.
+    import datetime
+    end_date_adj = pd.to_datetime(end_date) + datetime.timedelta(days=1)
+    end_date_str = end_date_adj.strftime("%Y-%m-%d")
+    
+    # 기존 end_date 대신 end_date_str(하루 더해진 날짜)을 사용합니다.
+    sig = get_data(signal_ticker, start_date, end_date_str).sort_values("Date")
+    trd = get_data(trade_ticker,  start_date, end_date_str).sort_values("Date")
     
     if sig.empty or trd.empty: return None, None, None, None, None, None
     
@@ -60,7 +67,7 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     
     x_mkt, ma_mkt_arr = None, None
     if market_ticker:
-        mkt = get_data(market_ticker, start_date, end_date).sort_values("Date")
+        mkt = get_data(market_ticker, start_date, end_date_str).sort_values("Date")
         if not mkt.empty:
             mkt = mkt.rename(columns={"Close": "Close_mkt"})[["Date", "Close_mkt"]]
             base = pd.merge(base, mkt, on="Date", how="inner")
