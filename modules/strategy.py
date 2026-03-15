@@ -89,33 +89,17 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
 
 
 # --- 시그널 체크 (상세) ---
+# --- 시그널 체크 (상세) ---
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
                        use_market_filter=False, market_ticker="", market_ma_period=200, 
                        use_bollinger=False, bb_period=20, bb_std=2.0, bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈"):
     if df is None or df.empty: st.error("데이터 없음"); return
     
-    # 1. 데이터 정렬 및 마지막 날짜 확인
+    # 순수하게 데이터 정렬만 수행 (가짜 캔들 없음)
     df = df.copy().sort_values("Date").reset_index(drop=True)
-
-    # 👇 [여기부터 추가] 사용자님 논리 반영 (가짜 캔들 추가)
-    import datetime
-    today = datetime.datetime.now().date()
-    last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
-    
-    # 마지막 데이터가 오늘(3/13)보다 과거(3/12)라면, 
-    # 오늘을 뜻하는 빈 줄을 하나 강제로 넣어서 인덱스를 맞춥니다.
-    if last_date < today:
-        dummy_row = df.iloc[-1:].copy()
-        dummy_row['Date'] = pd.to_datetime(today)
-        df = pd.concat([df, dummy_row], ignore_index=True)
-    # 👆 [여기까지 추가]
-
-    # 이 아래는 기존 코드 그대로 유지                           
-                           
     last_row = df.iloc[-1]
     last_date = pd.to_datetime(last_row['Date'])
     
-    # 2. 날짜 안내 메시지 (오늘 날짜와 다르면 알려줌)
     import datetime
     diff_days = (datetime.datetime.now().date() - last_date.date()).days
     if diff_days >= 1:
@@ -127,7 +111,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
     ma_buy = int(ma_buy)
     ma_sell = int(ma_sell)
     
-    df = df.copy().sort_values("Date").reset_index(drop=True)
     df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce") 
     df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
     df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
@@ -198,7 +181,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         if buy_ok and not market_ok: st.warning("⚠️ 시장 필터 미충족")
         st.write(f"💡 매도: {sell_cond_str} → {'✅' if sell_ok else '❌'}")
         
-        # [수정] 매수/매도 동시 발생 시 명확하게 표시
         if final_buy and sell_ok:
             st.warning("⚠️ 매수/매도 신호 중복 (전략 점검 필요)")
         elif final_buy:
@@ -213,29 +195,17 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
-        # [수정] 데이터 정렬 및 시그널 탭과 동일하게 컬럼 맞춤
         df = df.copy().sort_values("Date").reset_index(drop=True)
         if "Close_sig" in df.columns: 
             df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce")
         else: 
             df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-
+            
         if len(df) < 60: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
-        # 👇 [여기부터 추가] 프리셋 탭에도 동일하게 적용
-        import datetime
-        today = datetime.datetime.now().date()
-        last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
-        
-        if last_date < today:
-            dummy_row = df.iloc[-1:].copy()
-            dummy_row['Date'] = pd.to_datetime(today)
-            df = pd.concat([df, dummy_row], ignore_index=True)
-        # 👆 [여기까지 추가]
-                
         idx_now = len(df) - 1
         
-        # [수정] 파라미터 안전 변환 (문자열 'False' 버그 완벽 차단)
+        # 파라미터 안전 변환 (문자열 False 방지)
         def _bool(v): return str(v).strip().lower() in ['true', '1', 't', 'y']
         def _int(v, d=0): 
             try: return int(float(v))
@@ -275,10 +245,8 @@ def summarize_signal_today(df, p):
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
         last_buy_date, last_sell_date = "-", "-"
-        debug_msg = "" # 디버깅 메시지 저장용
 
         def _check(i, type_):
-            nonlocal debug_msg
             if i < max(60, off_ma_b, off_cl_b, off_ma_s, off_cl_s): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
@@ -307,12 +275,7 @@ def summarize_signal_today(df, p):
                     
                     if type_ == 'buy':
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
-                        res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
-                        
-                        # [핵심] 관망일 경우, 프리셋이 대체 무슨 숫자를 보고 있는지 화면에 출력
-                        if i == idx_now and not res:
-                            debug_msg = f"(종가:{cl:.2f}, 이평{ma_buy}:{ma:.2f})"
-                        return res
+                        return (buy_cond and trend_ok) if use_trend_buy else buy_cond
                     else:
                         sell_cond = (cl < ma) if sell_op == "<" else (cl > ma)
                         return (sell_cond and (not trend_ok)) if use_trend_sell else sell_cond
@@ -322,8 +285,7 @@ def summarize_signal_today(df, p):
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        # 라벨에 디버깅 메시지를 붙여서 출력
-        label = f"관망 {debug_msg}"
+        label = "관망"
         if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
@@ -338,6 +300,7 @@ def summarize_signal_today(df, p):
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+
 
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
@@ -372,9 +335,15 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         close_today = xC_trd[i]
         open_today, low_today, high_today = base["Open_trd"].iloc[i], base["Low_trd"].iloc[i], base["High_trd"].iloc[i]
 
+        # 👇👇 [여기서부터 교체 시작] 👇👇
+        
+        # [핵심 수정] 현실적인 매매(T+1) 구현: 신호는 어제(i-1) 기준으로 판단 -> 매매는 오늘(i) 실행
+        prev_i = i - 1
+        
         try:
-            cl_b, ma_b = x_sig[i - int(offset_cl_buy)], ma_buy_arr[i - int(offset_ma_buy)]
-            cl_s, ma_s = x_sig[i - int(offset_cl_sell)], ma_sell_arr[i - int(offset_ma_sell)]
+            # 모든 기준점(i)을 어제(prev_i)로 밀어버립니다.
+            cl_b, ma_b = x_sig[prev_i - int(offset_cl_buy)], ma_buy_arr[prev_i - int(offset_ma_buy)]
+            cl_s, ma_s = x_sig[prev_i - int(offset_cl_sell)], ma_sell_arr[prev_i - int(offset_ma_sell)]
         except: 
             asset_curve.append(cash + position * close_today)
             continue
@@ -382,44 +351,44 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         buy_cond, sell_cond = False, False
         buy_msg, sell_msg = "", "" 
 
-        # 1. 기술적 지표 조건 판단
+        # 1. 기술적 지표 조건 판단 (전부 prev_i 기준)
         if use_bollinger:
-            idx_b, idx_s = i - int(offset_cl_buy), i - int(offset_cl_sell)
+            idx_b, idx_s = prev_i - int(offset_cl_buy), prev_i - int(offset_cl_sell)
             
             if "상단선" in str(bb_entry_type): 
                 buy_cond = cl_b > bb_up[idx_b]
-                buy_msg = f"종가({cl_b:.2f}) > 상단({bb_up[idx_b]:.2f})"
+                buy_msg = f"어제종가({cl_b:.2f}) > 상단({bb_up[idx_b]:.2f})"
             elif "하단선" in str(bb_entry_type): 
                 buy_cond = cl_b < bb_lo[idx_b]
-                buy_msg = f"종가({cl_b:.2f}) < 하단({bb_lo[idx_b]:.2f})"
+                buy_msg = f"어제종가({cl_b:.2f}) < 하단({bb_lo[idx_b]:.2f})"
             else: 
                 buy_cond = cl_b > bb_mid[idx_b]
-                buy_msg = f"종가({cl_b:.2f}) > 중심({bb_mid[idx_b]:.2f})"
+                buy_msg = f"어제종가({cl_b:.2f}) > 중심({bb_mid[idx_b]:.2f})"
 
             if "상단선" in str(bb_exit_type): 
                 sell_cond = cl_s < bb_up[idx_s]
-                sell_msg = f"종가({cl_s:.2f}) < 상단({bb_up[idx_s]:.2f})"
+                sell_msg = f"어제종가({cl_s:.2f}) < 상단({bb_up[idx_s]:.2f})"
             elif "하단선" in str(bb_exit_type): 
                 sell_cond = cl_s < bb_lo[idx_s]
-                sell_msg = f"종가({cl_s:.2f}) < 하단({bb_lo[idx_s]:.2f})"
+                sell_msg = f"어제종가({cl_s:.2f}) < 하단({bb_lo[idx_s]:.2f})"
             else: 
                 sell_cond = cl_s < bb_mid[idx_s]
-                sell_msg = f"종가({cl_s:.2f}) < 중심({bb_mid[idx_s]:.2f})"
+                sell_msg = f"어제종가({cl_s:.2f}) < 중심({bb_mid[idx_s]:.2f})"
         else:
             t_ok = True
             t_msg = ""
             if ma_s_arr is not None: 
-                s_val = ma_s_arr[i-int(offset_compare_short)]
-                l_val = ma_l_arr[i-int(offset_compare_long)]
+                s_val = ma_s_arr[prev_i-int(offset_compare_short)]
+                l_val = ma_l_arr[prev_i-int(offset_compare_long)]
                 t_ok = s_val >= l_val
                 t_msg = f" [추세:{'상승' if t_ok else '하락'}]"
 
             if buy_operator == ">":
                 buy_cond = (cl_b > ma_b)
-                buy_msg = f"종가({cl_b:.2f}) > 이평({ma_b:.2f})"
+                buy_msg = f"어제종가({cl_b:.2f}) > 이평({ma_b:.2f})"
             else:
                 buy_cond = (cl_b < ma_b)
-                buy_msg = f"종가({cl_b:.2f}) < 이평({ma_b:.2f})"
+                buy_msg = f"어제종가({cl_b:.2f}) < 이평({ma_b:.2f})"
             
             if use_trend_in_buy and not t_ok: 
                 buy_cond = False
@@ -431,25 +400,27 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
             else:
                 if sell_operator == "<":
                     sell_cond = (cl_s < ma_s)
-                    sell_msg = f"종가({cl_s:.2f}) < 이평({ma_s:.2f})"
+                    sell_msg = f"어제종가({cl_s:.2f}) < 이평({ma_s:.2f})"
                 else:
                     sell_cond = (cl_s > ma_s)
-                    sell_msg = f"종가({cl_s:.2f}) > 이평({ma_s:.2f})"
+                    sell_msg = f"어제종가({cl_s:.2f}) > 이평({ma_s:.2f})"
                 
                 if use_trend_in_sell and t_ok: 
                     sell_cond = False
                     sell_msg += " (역추세필터거부)"
 
         if buy_cond and use_rsi_filter:
-            if rsi_arr[i-1] > rsi_max: 
+            if rsi_arr[prev_i] > rsi_max: 
                 buy_cond = False
-                buy_msg += f" (RSI 과열 {rsi_arr[i-1]:.1f})"
+                buy_msg += f" (RSI 과열 {rsi_arr[prev_i]:.1f})"
         
         if buy_cond and use_market_filter:
-            if x_mkt[i] < ma_mkt_arr[i]: 
+            if x_mkt[prev_i] < ma_mkt_arr[prev_i]: 
                 buy_cond = False
-                buy_msg += f" (시장하락장 {x_mkt[i]:.1f})"
-
+                buy_msg += f" (시장하락장 {x_mkt[prev_i]:.1f})"
+                
+        # 👆👆 [여기까지 교체 끝] 👆👆
+        
         # 2. 매도 OFF 강제 적용
         if sell_operator == "OFF":
             sell_cond = False
