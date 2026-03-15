@@ -204,17 +204,22 @@ def summarize_signal_today(df, p):
         off_cl_s = int(p.get("offset_cl_sell", 0))
         buy_op = str(p.get("buy_operator", ">"))
         sell_op = str(p.get("sell_operator", "<"))
-        use_trend_buy = bool(p.get("use_trend_in_buy", False))
-        use_trend_sell = bool(p.get("use_trend_in_sell", False))
+        use_trend_buy = str(p.get("use_trend_in_buy", False)).strip().lower() in ['true', '1']
+        use_trend_sell = str(p.get("use_trend_in_sell", False)).strip().lower() in ['true', '1']
         ma_comp_s = int(p.get("ma_compare_short", 0) or 0)
         ma_comp_l = int(p.get("ma_compare_long", 0) or 0)
         off_comp_s = int(p.get("offset_compare_short", 0))
         off_comp_l = int(p.get("offset_compare_long", 0))
-        use_bollinger = bool(p.get("use_bollinger", False))
+        use_bollinger = str(p.get("use_bollinger", False)).strip().lower() in ['true', '1']
         
         df = df.copy().sort_values("Date").reset_index(drop=True)
         if len(df) < 120: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
-        df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+        
+        # [수정 2] 시그널 탭처럼 'Close_sig' 컬럼이 들어올 때도 정상 계산되도록 처리
+        if "Close_sig" in df.columns:
+            df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce")
+        else:
+            df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
         
         if (use_trend_buy or use_trend_sell) and ma_comp_s > 0 and ma_comp_l > 0:
             df["MA_COMP_S"] = df["Close"].rolling(ma_comp_s).mean()
