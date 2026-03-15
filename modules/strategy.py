@@ -48,7 +48,7 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     import datetime
     import pandas as pd
     
-    # 1. 종료일 하루 잘리는 현상 방지 (+1일)
+    # 1. 종료일 하루 잘림 방지 (+1일)
     end_date_adj = pd.to_datetime(end_date) + datetime.timedelta(days=1)
     end_date_str = end_date_adj.strftime("%Y-%m-%d")
     
@@ -58,19 +58,24 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     if sig is None or sig.empty or trd is None or trd.empty: 
         return None, None, None, None, None, None
         
+    # 🛡️ [핵심 방어막 1] 날짜에서 시간(15:30:00 등)을 완전히 제거하여 00:00:00으로 통일
+    sig['Date'] = pd.to_datetime(sig['Date']).dt.normalize()
+    trd['Date'] = pd.to_datetime(trd['Date']).dt.normalize()
+
+    # 🛡️ [핵심 방어막 2] yfinance 최신 날짜 중복(가짜 실시간 캔들) 버그 완벽 제거!
+    # 같은 날짜가 여러 개면 가장 마지막(최신) 값 딱 1개만 남기고 다 지웁니다.
+    sig = sig.drop_duplicates(subset=['Date'], keep='last')
+    trd = trd.drop_duplicates(subset=['Date'], keep='last')
+    
     sig = sig.sort_values("Date")
     trd = trd.sort_values("Date")
     
-    sig['Date'] = pd.to_datetime(sig['Date'])
-    trd['Date'] = pd.to_datetime(trd['Date'])
-    
-    # 🛡️ [핵심 방어막] 야후 파이낸스 유령 데이터(월요일) 강제 절단
-    # 사용자가 원래 지정한 end_date보다 미래인 날짜가 껴있으면 싹둑 자릅니다.
+    # 사용자가 지정한 종료일까지만 정확히 자르기
     target_end_date = pd.to_datetime(end_date)
     sig = sig[sig['Date'] <= target_end_date]
     trd = trd[trd['Date'] <= target_end_date]
     
-    # 🛡️ [유지] 혹시 모를 주말(토=5, 일=6) 가짜 캔들 삭제
+    # 주말(토=5, 일=6) 가짜 캔들 삭제
     sig = sig[~sig['Date'].dt.dayofweek.isin([5, 6])]
     trd = trd[~trd['Date'].dt.dayofweek.isin([5, 6])]
 
@@ -86,9 +91,10 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     if market_ticker:
         mkt = get_data(market_ticker, start_date, end_date_str)
         if not mkt.empty:
+            mkt['Date'] = pd.to_datetime(mkt['Date']).dt.normalize()
+            mkt = mkt.drop_duplicates(subset=['Date'], keep='last') # 시장 데이터도 중복 제거
             mkt = mkt.sort_values("Date")
-            mkt['Date'] = pd.to_datetime(mkt['Date'])
-            mkt = mkt[mkt['Date'] <= target_end_date] # 시장 데이터도 똑같이 절단
+            mkt = mkt[mkt['Date'] <= target_end_date]
             mkt = mkt[~mkt['Date'].dt.dayofweek.isin([5, 6])]
             mkt = mkt.rename(columns={"Close": "Close_mkt"})[["Date", "Close_mkt"]]
             base = pd.merge(base, mkt, on="Date", how="inner")
@@ -106,7 +112,8 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     for w in sorted(set([int(w) for w in ma_pool if w and w > 0])):
         ma_dict_sig[w] = _fast_ma(x_sig, w)
         
-    return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr    
+    return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr
+
 # --- 시그널 체크 (상세) ---
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
                        use_market_filter=False, market_ticker="", market_ma_period=200, 
