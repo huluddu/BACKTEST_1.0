@@ -189,45 +189,59 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
-        # 1. 데이터 정렬
         df = df.copy().sort_values("Date").reset_index(drop=True)
         if len(df) < 60: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
-        
-        # [핵심] 무조건 마지막 행(최신 데이터)을 기준으로 삼습니다.
-        idx_now = df.index[-1]
-        
-        ma_buy = int(p.get("ma_buy", 20))
-        ma_sell = int(p.get("ma_sell", 10))
-        off_ma_b = int(p.get("offset_ma_buy", 0))
-        off_cl_b = int(p.get("offset_cl_buy", 0))
-        off_ma_s = int(p.get("offset_ma_sell", 0))
-        off_cl_s = int(p.get("offset_cl_sell", 0))
-        buy_op = str(p.get("buy_operator", ">"))
-        sell_op = str(p.get("sell_operator", "<"))
-        use_trend_buy = str(p.get("use_trend_in_buy", False)).strip().lower() in ['true', '1']
-        use_trend_sell = str(p.get("use_trend_in_sell", False)).strip().lower() in ['true', '1']
-        ma_comp_s = int(p.get("ma_compare_short", 0) or 0)
-        ma_comp_l = int(p.get("ma_compare_long", 0) or 0)
-        off_comp_s = int(p.get("offset_compare_short", 0))
-        off_comp_l = int(p.get("offset_compare_long", 0))
-        use_bollinger = str(p.get("use_bollinger", False)).strip().lower() in ['true', '1']
-        
-        df = df.copy().sort_values("Date").reset_index(drop=True)
-        if len(df) < 120: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
-        
-        # [수정 2] 시그널 탭처럼 'Close_sig' 컬럼이 들어올 때도 정상 계산되도록 처리
+
+        # 1. 컬럼명 꼬임 방지 (Close_sig로 넘어올 때도 처리)
         if "Close_sig" in df.columns:
             df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce")
         else:
             df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-        
+
+        # 2. 파라미터 안전 추출 함수 (문자열 'False', 결측치 방지)
+        def safe_int(key, default):
+            try: val = p.get(key, default)
+            except: return default
+            if pd.isna(val) or val == "": return default
+            return int(float(val))
+
+        def safe_bool(key):
+            try: val = p.get(key, False)
+            except: return False
+            if isinstance(val, str): return val.strip().lower() in ['true', '1', 't', 'y']
+            return bool(val)
+
+        # 3. 안전하게 변수 할당
+        ma_buy = safe_int("ma_buy", 20)
+        ma_sell = safe_int("ma_sell", 10)
+        off_ma_b = safe_int("offset_ma_buy", 0)
+        off_cl_b = safe_int("offset_cl_buy", 0)
+        off_ma_s = safe_int("offset_ma_sell", 0)
+        off_cl_s = safe_int("offset_cl_sell", 0)
+
+        buy_op = str(p.get("buy_operator", ">")).strip()
+        if buy_op not in [">", "<"]: buy_op = ">"  # 결측치 시 무조건 기본값
+        sell_op = str(p.get("sell_operator", "<")).strip()
+
+        use_trend_buy = safe_bool("use_trend_in_buy")
+        use_trend_sell = safe_bool("use_trend_in_sell")
+        ma_comp_s = safe_int("ma_compare_short", 0)
+        ma_comp_l = safe_int("ma_compare_long", 0)
+        off_comp_s = safe_int("offset_compare_short", 0)
+        off_comp_l = safe_int("offset_compare_long", 0)
+        use_bollinger = safe_bool("use_bollinger")
+
+        # 4. 지표 계산
         if (use_trend_buy or use_trend_sell) and ma_comp_s > 0 and ma_comp_l > 0:
             df["MA_COMP_S"] = df["Close"].rolling(ma_comp_s).mean()
             df["MA_COMP_L"] = df["Close"].rolling(ma_comp_l).mean()
 
         if use_bollinger:
-            bb_p = int(p.get("bb_period", 20))
-            bb_s = float(p.get("bb_std", 2.0))
+            bb_p = safe_int("bb_period", 20)
+            try: bb_s = float(p.get("bb_std", 2.0))
+            except: bb_s = 2.0
+            if pd.isna(bb_s): bb_s = 2.0
+
             _, u, l = calculate_bollinger_bands(df["Close"], bb_p, bb_s)
             mid = df["Close"].rolling(bb_p).mean()
             df["BB_UP"], df["BB_LO"], df["BB_MID"] = u, l, mid
@@ -237,14 +251,15 @@ def summarize_signal_today(df, p):
 
         last_buy_date, last_sell_date = "-", "-"
         idx_now = len(df) - 1
-        
+
         def _check(i, type_):
-            if i < 60: return False
+            # 오프셋이나 60일 미만 데이터 참조로 인한 에러 원천 차단
+            if i < max(off_cl_b, off_ma_b, off_cl_s, off_ma_s, off_comp_s, off_comp_l, 60): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
 
                 trend_ok = True
-                if (use_trend_buy or use_trend_sell) and "MA_COMP_S" in df.columns:
+                if (use_trend_buy or use_trend_sell) and "MA_COMP_S" in df.columns and "MA_COMP_L" in df.columns:
                     s_val = df["MA_COMP_S"].iloc[i - off_comp_s]
                     l_val = df["MA_COMP_L"].iloc[i - off_comp_l]
                     trend_ok = (s_val >= l_val)
@@ -264,23 +279,22 @@ def summarize_signal_today(df, p):
                 else:
                     cl = df["Close"].iloc[i - (off_cl_b if type_=='buy' else off_cl_s)]
                     ma = df["MA_BUY"].iloc[i - off_ma_b] if type_=='buy' else df["MA_SELL"].iloc[i - off_ma_s]
+                    
                     if type_ == 'buy':
-                        return ((cl > ma) if buy_op == ">" else (cl < ma)) and (trend_ok if use_trend_buy else True)
+                        buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
+                        return (buy_cond and trend_ok) if use_trend_buy else buy_cond
                     else:
-                        return ((cl < ma) if sell_op == "<" else (cl > ma)) and ((not trend_ok) if use_trend_sell else True)
+                        sell_cond = (cl < ma) if sell_op == "<" else (cl > ma)
+                        return (sell_cond and (not trend_ok)) if use_trend_sell else sell_cond
             except: return False
 
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        # [수정] 라벨 표시 로직 수정 (중복 시그널 체크)
         label = "관망"
-        if is_buy_now and is_sell_now:
-            label = "⚠️매수/매도 중복"
-        elif is_buy_now:
-            label = "매수진입"
-        elif is_sell_now:
-            label = "매도청산"
+        if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
+        elif is_buy_now: label = "매수진입"
+        elif is_sell_now: label = "매도청산"
         
         search_range = min(365, len(df)-60)
         for k in range(search_range):
@@ -292,6 +306,7 @@ def summarize_signal_today(df, p):
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except: return {"label": "오류", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+        
 
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
