@@ -42,20 +42,20 @@ def calculate_atr(df, period=14):
     atr = true_range.rolling(window=period).mean()
     return atr
 
-# --- 데이터 준비 ---
 @st.cache_data(show_spinner=False, ttl=1800)
 def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool, market_ma_period=200):
-    
-    # 👇 [추가됨] 종료일 미포함 버그 해결을 위해 날짜에 하루를 강제로 더합니다.
-    import datetime
-    end_date_adj = pd.to_datetime(end_date) + datetime.timedelta(days=1)
-    end_date_str = end_date_adj.strftime("%Y-%m-%d")
-    
-    # 기존 end_date 대신 end_date_str(하루 더해진 날짜)을 사용합니다.
-    sig = get_data(signal_ticker, start_date, end_date_str).sort_values("Date")
-    trd = get_data(trade_ticker,  start_date, end_date_str).sort_values("Date")
+    sig = get_data(signal_ticker, start_date, end_date).sort_values("Date")
+    trd = get_data(trade_ticker,  start_date, end_date).sort_values("Date")
     
     if sig.empty or trd.empty: return None, None, None, None, None, None
+
+    # 👇👇 [여기에 이 3줄을 추가해 주세요!] 👇👇
+    # 야후 파이낸스의 주말 가짜 데이터(토=5, 일=6) 솎아내기
+    sig['Date'] = pd.to_datetime(sig['Date'])
+    sig = sig[~sig['Date'].dt.dayofweek.isin([5, 6])]
+    trd['Date'] = pd.to_datetime(trd['Date'])
+    trd = trd[~trd['Date'].dt.dayofweek.isin([5, 6])]
+    # 👆👆 --------------------------------- 👆👆
     
     # ATR 계산
     trd["ATR"] = calculate_atr(trd, period=14)
@@ -67,7 +67,7 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
     
     x_mkt, ma_mkt_arr = None, None
     if market_ticker:
-        mkt = get_data(market_ticker, start_date, end_date_str).sort_values("Date")
+        mkt = get_data(market_ticker, start_date, end_date).sort_values("Date")
         if not mkt.empty:
             mkt = mkt.rename(columns={"Close": "Close_mkt"})[["Date", "Close_mkt"]]
             base = pd.merge(base, mkt, on="Date", how="inner")
@@ -86,6 +86,7 @@ def prepare_base(signal_ticker, trade_ticker, market_ticker, start_date, end_dat
         ma_dict_sig[w] = _fast_ma(x_sig, w)
         
     return base, x_sig, x_trd, ma_dict_sig, x_mkt, ma_mkt_arr
+
 
 # --- 시그널 체크 (상세) ---
 def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, buy_operator, sell_operator, use_trend_in_buy, use_trend_in_sell,
