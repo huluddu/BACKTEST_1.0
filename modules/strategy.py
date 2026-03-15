@@ -96,6 +96,22 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
     
     # 1. 데이터 정렬 및 마지막 날짜 확인
     df = df.copy().sort_values("Date").reset_index(drop=True)
+
+    # 👇 [여기부터 추가] 사용자님 논리 반영 (가짜 캔들 추가)
+    import datetime
+    today = datetime.datetime.now().date()
+    last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
+    
+    # 마지막 데이터가 오늘(3/13)보다 과거(3/12)라면, 
+    # 오늘을 뜻하는 빈 줄을 하나 강제로 넣어서 인덱스를 맞춥니다.
+    if last_date < today:
+        dummy_row = df.iloc[-1:].copy()
+        dummy_row['Date'] = pd.to_datetime(today)
+        df = pd.concat([df, dummy_row], ignore_index=True)
+    # 👆 [여기까지 추가]
+
+    # 이 아래는 기존 코드 그대로 유지                           
+                           
     last_row = df.iloc[-1]
     last_date = pd.to_datetime(last_row['Date'])
     
@@ -205,7 +221,18 @@ def summarize_signal_today(df, p):
             df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
 
         if len(df) < 60: return {"label": "데이터부족", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+
+        # 👇 [여기부터 추가] 프리셋 탭에도 동일하게 적용
+        import datetime
+        today = datetime.datetime.now().date()
+        last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
         
+        if last_date < today:
+            dummy_row = df.iloc[-1:].copy()
+            dummy_row['Date'] = pd.to_datetime(today)
+            df = pd.concat([df, dummy_row], ignore_index=True)
+        # 👆 [여기까지 추가]
+                
         idx_now = len(df) - 1
         
         # [수정] 파라미터 안전 변환 (문자열 'False' 버그 완벽 차단)
