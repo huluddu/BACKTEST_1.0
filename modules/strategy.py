@@ -492,6 +492,11 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
             sell_cond = False
             sell_msg = "OFF"
 
+        # 👇👇 [여기에 이 2줄을 복사해서 붙여넣으세요!] 👇👇
+        if i >= n - 5: # 백테스트 마지막 5일 동안의 속마음을 화면에 강제 출력
+            st.info(f"🔍 [백테스트 뇌구조 {base['Date'].iloc[i].strftime('%m/%d')}] 매수조건 통과?: {buy_cond} | {buy_msg}")
+        # 👆👆 ------------------------------------------ 👆👆
+
         stop_hit, take_hit = False, False
         sold_today = False 
 
