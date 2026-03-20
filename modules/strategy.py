@@ -368,6 +368,7 @@ def summarize_signal_today(df, p):
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+
         
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
