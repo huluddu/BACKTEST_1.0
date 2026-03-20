@@ -120,7 +120,10 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                        use_bollinger=False, bb_period=20, bb_std=2.0, bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈"):
     if df is None or df.empty: st.error("데이터 없음"); return
     
-    # 순수하게 데이터 정렬만 수행 (가짜 캔들 없음)
+    # 🛡️ 문자열(False) 버그 완벽 차단
+    use_trend_in_buy = str(use_trend_in_buy).strip().lower() in ['true', '1', 't', 'y']
+    use_trend_in_sell = str(use_trend_in_sell).strip().lower() in ['true', '1', 't', 'y']
+
     df = df.copy().sort_values("Date").reset_index(drop=True)
     last_row = df.iloc[-1]
     last_date = pd.to_datetime(last_row['Date'])
@@ -151,13 +154,11 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         df["MA_SHORT"] = df["Close"].rolling(int(ma_compare_short)).mean()
         df["MA_LONG"] = df["Close"].rolling(int(ma_compare_long)).mean()
 
-    # [복구] 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
-    import datetime
+    # 주말 및 장 시작 전 가짜 캔들 연장 로직 (유지)
     last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
     today = datetime.datetime.now().date()
-    
     if last_date < today:
-        dummy_row = df.iloc[-1:].copy() # 지표 계산이 끝난 금요일 캔들을 그대로 복사
+        dummy_row = df.iloc[-1:].copy()
         dummy_row['Date'] = pd.to_datetime(today)
         df = pd.concat([df, dummy_row], ignore_index=True)
     
@@ -193,9 +194,15 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         else:
             ma_b = float(df["MA_BUY"].iloc[i - int(offset_ma_buy)])
             ma_s = float(df["MA_SELL"].iloc[i - int(offset_ma_sell)])
+            
+            # 🛡️ 추세 필터 계산 및 화면에 보여줄 텍스트(t_str) 생성
             trend_ok = True
+            t_str = ""
             if (use_trend_in_buy or use_trend_in_sell) and "MA_SHORT" in df.columns:
-                trend_ok = df["MA_SHORT"].iloc[i - int(offset_compare_short)] >= df["MA_LONG"].iloc[i - int(offset_compare_long)]
+                s_val = df["MA_SHORT"].iloc[i - int(offset_compare_short)]
+                l_val = df["MA_LONG"].iloc[i - int(offset_compare_long)]
+                trend_ok = (s_val >= l_val)
+                t_str = f" [추세필터: 단기{s_val:.2f} {'≥' if trend_ok else '<'} 장기{l_val:.2f}]"
 
             buy_base = (cl_b > ma_b) if (buy_operator == ">") else (cl_b < ma_b)
             
@@ -206,9 +213,11 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
                 sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
                 sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
+                if use_trend_in_sell: sell_cond_str += t_str
             
             buy_ok = (buy_base and trend_ok) if use_trend_in_buy else buy_base
             cond_str = f"종가 {cl_b:.2f} {buy_operator} 이평 {ma_b:.2f}"
+            if use_trend_in_buy: cond_str += t_str
 
         final_buy = buy_ok and market_ok
         st.subheader(f"📌 시그널 ({ref_date})")
@@ -227,6 +236,7 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 
     except Exception as e: st.error(f"오류: {e}")
 
+# --- 프리셋 분석 (Tab 2) ---
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
@@ -240,7 +250,6 @@ def summarize_signal_today(df, p):
 
         idx_now = len(df) - 1
         
-        # 파라미터 안전 변환 (문자열 False 방지)
         def _bool(v): return str(v).strip().lower() in ['true', '1', 't', 'y']
         def _int(v, d=0): 
             try: return int(float(v))
@@ -279,19 +288,18 @@ def summarize_signal_today(df, p):
             df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
-        # [복구] 프리셋 탭: 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
-        import datetime
         last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
         today = datetime.datetime.now().date()
-        
         if last_date < today:
             dummy_row = df.iloc[-1:].copy()
             dummy_row['Date'] = pd.to_datetime(today)
             df = pd.concat([df, dummy_row], ignore_index=True)
 
         last_buy_date, last_sell_date = "-", "-"
+        debug_msg = "" # 관망 이유를 담을 변수
 
         def _check(i, type_):
+            nonlocal debug_msg
             if i < max(60, off_ma_b, off_cl_b, off_ma_s, off_cl_s): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
@@ -320,7 +328,13 @@ def summarize_signal_today(df, p):
                     
                     if type_ == 'buy':
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
-                        return (buy_cond and trend_ok) if use_trend_buy else buy_cond
+                        res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
+                        
+                        # 🛡️ 관망이면 도대체 뭐 때문에 관망인지 표기!
+                        if i == idx_now and not res:
+                            t_info = f", 추세:{'통과' if trend_ok else '탈락'}" if use_trend_buy else ""
+                            debug_msg = f"(종가 vs 이평{t_info})"
+                        return res
                     else:
                         sell_cond = (cl < ma) if sell_op == "<" else (cl > ma)
                         return (sell_cond and (not trend_ok)) if use_trend_sell else sell_cond
@@ -330,7 +344,7 @@ def summarize_signal_today(df, p):
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        label = "관망"
+        label = f"관망 {debug_msg}".strip() if debug_msg else "관망"
         if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
@@ -345,7 +359,6 @@ def summarize_signal_today(df, p):
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
-
 
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
