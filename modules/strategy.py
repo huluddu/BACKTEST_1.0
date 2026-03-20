@@ -120,11 +120,26 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                        use_bollinger=False, bb_period=20, bb_std=2.0, bb_entry_type="상단선 돌파 (추세)", bb_exit_type="중심선(MA) 이탈"):
     if df is None or df.empty: st.error("데이터 없음"); return
     
-    # 🛡️ 문자열(False) 버그 완벽 차단
-    use_trend_in_buy = str(use_trend_in_buy).strip().lower() in ['true', '1', 't', 'y']
-    use_trend_in_sell = str(use_trend_in_sell).strip().lower() in ['true', '1', 't', 'y']
+    # 🛡️ [핵심] 문자열(False) 버그 완벽 차단 및 형변환
+    def _bool(v): return str(v).strip().lower() in ['true', '1', 't', 'y']
+    def _int(v, d=0):
+        try: return int(float(v))
+        except: return d
+        
+    use_trend_in_buy = _bool(use_trend_in_buy)
+    use_trend_in_sell = _bool(use_trend_in_sell)
+    ma_comp_s = _int(ma_compare_short)
+    ma_comp_l = _int(ma_compare_long)
+    off_comp_s = _int(offset_compare_short)
+    off_comp_l = _int(offset_compare_long)
 
+    # 🧹 [가짜 캔들 삭제됨] 순수하게 존재하는 데이터만 정렬
     df = df.copy().sort_values("Date").reset_index(drop=True)
+    if "Close_sig" in df.columns: 
+        df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce")
+    else: 
+        df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+        
     last_row = df.iloc[-1]
     last_date = pd.to_datetime(last_row['Date'])
     
@@ -136,43 +151,34 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         st.caption(f"📅 기준일: **{last_date.strftime('%Y-%m-%d')}** (최신)")
     
     has_market = "Close_mkt" in df.columns
-    ma_buy = int(ma_buy)
-    ma_sell = int(ma_sell)
+    ma_buy = _int(ma_buy, 20)
+    ma_sell = _int(ma_sell, 10)
     
-    df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce") 
     df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
     df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
     
     if has_market and use_market_filter:
-        df["MA_MKT"] = df["Close_mkt"].rolling(int(market_ma_period)).mean()
+        df["MA_MKT"] = df["Close_mkt"].rolling(_int(market_ma_period, 200)).mean()
     
     if use_bollinger:
-        m, u, l = calculate_bollinger_bands(df["Close"], bb_period, bb_std)
+        m, u, l = calculate_bollinger_bands(df["Close"], _int(bb_period, 20), float(bb_std))
         df["BB_UP"], df["BB_MID"], df["BB_LO"] = u, m, l
 
-    if ma_compare_short and ma_compare_long:
-        df["MA_SHORT"] = df["Close"].rolling(int(ma_compare_short)).mean()
-        df["MA_LONG"] = df["Close"].rolling(int(ma_compare_long)).mean()
-
-    # 주말 및 장 시작 전 가짜 캔들 연장 로직 (유지)
-    last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
-    today = datetime.datetime.now().date()
-    if last_date < today:
-        dummy_row = df.iloc[-1:].copy()
-        dummy_row['Date'] = pd.to_datetime(today)
-        df = pd.concat([df, dummy_row], ignore_index=True)
+    if ma_comp_s > 0 and ma_comp_l > 0:
+        df["MA_SHORT"] = df["Close"].rolling(ma_comp_s).mean()
+        df["MA_LONG"] = df["Close"].rolling(ma_comp_l).mean()
     
     i = len(df) - 1
     try:
-        if i - max(int(offset_cl_buy), int(offset_ma_buy), int(offset_cl_sell), int(offset_ma_sell)) < 0:
+        if i - max(_int(offset_cl_buy), _int(offset_ma_buy), _int(offset_cl_sell), _int(offset_ma_sell), off_comp_s, off_comp_l) < 0:
             st.error("데이터 부족"); return
         
         market_ok = True
         if has_market and use_market_filter:
             market_ok = df["Close_mkt"].iloc[i] > df["MA_MKT"].iloc[i]
 
-        cl_b = float(df["Close"].iloc[i - int(offset_cl_buy)])
-        cl_s = float(df["Close"].iloc[i - int(offset_cl_sell)])
+        cl_b = float(df["Close"].iloc[i - _int(offset_cl_buy)])
+        cl_s = float(df["Close"].iloc[i - _int(offset_cl_sell)])
         ref_date = df["Date"].iloc[-1].strftime('%Y-%m-%d')
         
         buy_ok, sell_ok = False, False
@@ -192,17 +198,24 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 elif "하단선" in str(bb_exit_type): sell_ok = cl_s < bb_l; sell_cond_str = f"종가 < 하단 {bb_l:.2f}"
                 else: sell_ok = cl_s < bb_m; sell_cond_str = f"종가 < 중심 {bb_m:.2f}"
         else:
-            ma_b = float(df["MA_BUY"].iloc[i - int(offset_ma_buy)])
-            ma_s = float(df["MA_SELL"].iloc[i - int(offset_ma_sell)])
+            ma_b = float(df["MA_BUY"].iloc[i - _int(offset_ma_buy)])
+            ma_s = float(df["MA_SELL"].iloc[i - _int(offset_ma_sell)])
             
-            # 🛡️ 추세 필터 계산 및 화면에 보여줄 텍스트(t_str) 생성
+            # 🛡️ [추가] 추세 필터 판단 결과 및 UI 화면 출력용 텍스트 생성
             trend_ok = True
-            t_str = ""
-            if (use_trend_in_buy or use_trend_in_sell) and "MA_SHORT" in df.columns:
-                s_val = df["MA_SHORT"].iloc[i - int(offset_compare_short)]
-                l_val = df["MA_LONG"].iloc[i - int(offset_compare_long)]
-                trend_ok = (s_val >= l_val)
-                t_str = f" [추세필터: 단기{s_val:.2f} {'≥' if trend_ok else '<'} 장기{l_val:.2f}]"
+            t_str_debug = ""
+            if (use_trend_in_buy or use_trend_in_sell):
+                if "MA_SHORT" in df.columns and "MA_LONG" in df.columns:
+                    s_val = df["MA_SHORT"].iloc[i - off_comp_s]
+                    l_val = df["MA_LONG"].iloc[i - off_comp_l]
+                    if pd.isna(s_val) or pd.isna(l_val):
+                        trend_ok = False
+                        t_str_debug = " [추세 데이터부족]"
+                    else:
+                        trend_ok = (s_val >= l_val)
+                        t_str_debug = f" [추세: 단기{s_val:.2f} {'≥' if trend_ok else '<'} 장기{l_val:.2f}]"
+                else:
+                    trend_ok = False
 
             buy_base = (cl_b > ma_b) if (buy_operator == ">") else (cl_b < ma_b)
             
@@ -213,11 +226,11 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
                 sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
                 sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
-                if use_trend_in_sell: sell_cond_str += t_str
+                if use_trend_in_sell: sell_cond_str += t_str_debug
             
             buy_ok = (buy_base and trend_ok) if use_trend_in_buy else buy_base
             cond_str = f"종가 {cl_b:.2f} {buy_operator} 이평 {ma_b:.2f}"
-            if use_trend_in_buy: cond_str += t_str
+            if use_trend_in_buy: cond_str += t_str_debug
 
         final_buy = buy_ok and market_ok
         st.subheader(f"📌 시그널 ({ref_date})")
@@ -240,6 +253,7 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
+        # 🧹 [가짜 캔들 삭제됨] 순수하게 존재하는 데이터만 정렬
         df = df.copy().sort_values("Date").reset_index(drop=True)
         if "Close_sig" in df.columns: 
             df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce")
@@ -288,15 +302,8 @@ def summarize_signal_today(df, p):
             df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
-        last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
-        today = datetime.datetime.now().date()
-        if last_date < today:
-            dummy_row = df.iloc[-1:].copy()
-            dummy_row['Date'] = pd.to_datetime(today)
-            df = pd.concat([df, dummy_row], ignore_index=True)
-
         last_buy_date, last_sell_date = "-", "-"
-        debug_msg = "" # 관망 이유를 담을 변수
+        debug_msg = "" 
 
         def _check(i, type_):
             nonlocal debug_msg
@@ -330,9 +337,9 @@ def summarize_signal_today(df, p):
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
                         res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
                         
-                        # 🛡️ 관망이면 도대체 뭐 때문에 관망인지 표기!
+                        # [UI 피드백] 프리셋 화면에 왜 관망인지 이유 출력
                         if i == idx_now and not res:
-                            t_info = f", 추세:{'통과' if trend_ok else '탈락'}" if use_trend_buy else ""
+                            t_info = f", 추세:{'✅' if trend_ok else '❌'}" if use_trend_buy else ""
                             debug_msg = f"(종가 vs 이평{t_info})"
                         return res
                     else:
@@ -359,6 +366,7 @@ def summarize_signal_today(df, p):
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+
 
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
