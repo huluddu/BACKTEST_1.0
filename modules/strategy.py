@@ -536,7 +536,7 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
                 "날짜": base["Date"].iloc[i], "종가": close_today, "신호": signal, 
                 "체결가": exec_price if exec_price is not None else close_today, 
                 "자산": total, 
-                "이유": reason if reason else "조건확인", 
+                "이유": reason, 
                 "상세내용": reason_detail if signal != "HOLD" else f"매수통과?:{buy_cond} | {buy_msg}", 
                 "손절발동": stop_hit, 
                 "익절발동": take_hit
