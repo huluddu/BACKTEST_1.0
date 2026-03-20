@@ -151,13 +151,13 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         df["MA_SHORT"] = df["Close"].rolling(int(ma_compare_short)).mean()
         df["MA_LONG"] = df["Close"].rolling(int(ma_compare_long)).mean()
 
-    # [복구] 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직 (사용자 원본)
+    # [복구] 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
     import datetime
     last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
     today = datetime.datetime.now().date()
     
     if last_date < today:
-        dummy_row = df.iloc[-1:].copy()
+        dummy_row = df.iloc[-1:].copy() # 지표 계산이 끝난 금요일 캔들을 그대로 복사
         dummy_row['Date'] = pd.to_datetime(today)
         df = pd.concat([df, dummy_row], ignore_index=True)
     
@@ -193,9 +193,9 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
         else:
             ma_b = float(df["MA_BUY"].iloc[i - int(offset_ma_buy)])
             ma_s = float(df["MA_SELL"].iloc[i - int(offset_ma_sell)])
-            
-            # [추가] UI 출력용 추세 텍스트 생성 (원본 로직 유지)
             trend_ok = True
+            
+            # 💡 [추가] 시그널 탭에도 추세 텍스트 생성
             t_str = ""
             if (use_trend_in_buy or use_trend_in_sell) and "MA_SHORT" in df.columns:
                 s_val = df["MA_SHORT"].iloc[i - int(offset_compare_short)]
@@ -212,11 +212,11 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
                 sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
                 sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
-                if use_trend_in_sell: sell_cond_str += t_str
+                if use_trend_in_sell: sell_cond_str += t_str # 💡 [추가]
             
             buy_ok = (buy_base and trend_ok) if use_trend_in_buy else buy_base
             cond_str = f"종가 {cl_b:.2f} {buy_operator} 이평 {ma_b:.2f}"
-            if use_trend_in_buy: cond_str += t_str
+            if use_trend_in_buy: cond_str += t_str # 💡 [추가]
 
         final_buy = buy_ok and market_ok
         st.subheader(f"📌 시그널 ({ref_date})")
@@ -287,7 +287,7 @@ def summarize_signal_today(df, p):
             df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
-        # [복구] 프리셋 탭: 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직 (사용자 원본)
+        # [복구] 프리셋 탭: 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
         import datetime
         last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
         today = datetime.datetime.now().date()
@@ -298,10 +298,10 @@ def summarize_signal_today(df, p):
             df = pd.concat([df, dummy_row], ignore_index=True)
 
         last_buy_date, last_sell_date = "-", "-"
-        debug_msg = "" # 💡 [추가] 관망 이유 텍스트
+        debug_msg = "" # 💡 [추가] 관망 이유 담을 바구니
 
         def _check(i, type_):
-            nonlocal debug_msg
+            nonlocal debug_msg # 💡 [추가]
             if i < max(60, off_ma_b, off_cl_b, off_ma_s, off_cl_s): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
@@ -331,7 +331,8 @@ def summarize_signal_today(df, p):
                     if type_ == 'buy':
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
                         res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
-                        # 💡 [추가] 관망 이유를 바구니에 담기
+                        
+                        # 💡 [추가] 오늘(idx_now) 시그널이 관망(False)이면 이유 픽업!
                         if i == idx_now and not res:
                             t_info = f", 추세:{'✅' if trend_ok else '❌'}" if use_trend_buy else ""
                             debug_msg = f"(종가 vs 이평{t_info})"
@@ -345,7 +346,7 @@ def summarize_signal_today(df, p):
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        # 💡 [추가] 관망 텍스트 옆에 이유 붙여주기
+        # 💡 [수정] 관망일 때만 이유 출력!
         label = f"관망 {debug_msg}".strip() if debug_msg else "관망"
         
         if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
