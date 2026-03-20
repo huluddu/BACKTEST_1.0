@@ -363,6 +363,14 @@ def summarize_signal_today(df, p):
             if last_buy_date == "-" and _check(curr_idx, 'buy'): last_buy_date = d_str
             if last_sell_date == "-" and _check(curr_idx, 'sell'): last_sell_date = d_str
             if last_buy_date != "-" and last_sell_date != "-": break
+
+     # 🛡️ [복구] 최근 매수일과 매도일을 비교해서 현재 '보유 상태'를 똑똑하게 판별!
+        is_holding = "미보유"
+        if last_buy_date != "-" and last_sell_date != "-":
+            if last_buy_date > last_sell_date: # 매수일이 매도일보다 더 최근이면 보유중!
+                is_holding = "보유중"
+        elif last_buy_date != "-": # 매도 기록은 없고 매수 기록만 있으면 보유중!
+            is_holding = "보유중"        
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
