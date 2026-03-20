@@ -356,25 +356,29 @@ def summarize_signal_today(df, p):
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
         
-        search_range = min(365, len(df)-60)
-        for k in range(search_range):
-            curr_idx = idx_now - k
-            d_str = df["Date"].iloc[curr_idx].strftime("%Y-%m-%d")
-            if last_buy_date == "-" and _check(curr_idx, 'buy'): last_buy_date = d_str
-            if last_sell_date == "-" and _check(curr_idx, 'sell'): last_sell_date = d_str
-            if last_buy_date != "-" and last_sell_date != "-": break
-
-     # 🛡️ [복구] 최근 매수일과 매도일을 비교해서 현재 '보유 상태'를 똑똑하게 판별!
-        is_holding = "미보유"
-        if last_buy_date != "-" and last_sell_date != "-":
-            if last_buy_date > last_sell_date: # 매수일이 매도일보다 더 최근이면 보유중!
-                is_holding = "보유중"
-        elif last_buy_date != "-": # 매도 기록은 없고 매수 기록만 있으면 보유중!
-            is_holding = "보유중"        
+        # 🛡️ [완전 교체] 엉터리 역주행 로직 삭제하고, 백테스트처럼 1년 전부터 정주행하며 상태 추적!
+        start_idx = max(60, len(df) - 365)
         
-        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
+        hold_state = False
+        last_buy_date, last_sell_date = "-", "-"
+        
+        for i in range(start_idx, len(df)):
+            b_ok = _check(i, 'buy')
+            s_ok = _check(i, 'sell')
+            
+            if hold_state: # 🟢 이미 '보유 중'일 때는 매도 신호만 감시
+                if s_ok:
+                    hold_state = False
+                    last_sell_date = df["Date"].iloc[i].strftime("%Y-%m-%d")
+            else:          # 🔴 '미보유' 상태일 때는 매수 신호만 감시
+                if b_ok:
+                    hold_state = True
+                    last_buy_date = df["Date"].iloc[i].strftime("%Y-%m-%d")
+                    
+        is_holding = "보유중" if hold_state else "미보유"
+        
+        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": is_holding}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
-
 
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
