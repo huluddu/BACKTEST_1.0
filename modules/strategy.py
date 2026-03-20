@@ -342,14 +342,8 @@ def summarize_signal_today(df, p):
             if last_buy_date == "-" and _check(curr_idx, 'buy'): last_buy_date = d_str
             if last_sell_date == "-" and _check(curr_idx, 'sell'): last_sell_date = d_str
             if last_buy_date != "-" and last_sell_date != "-": break
-
-        # 🛡️ [최종 방어막] 백엔드에서 직접 보유 여부를 글자로 판정해서 전송
-        is_holding = "미보유"
-        if last_buy_date != "-":
-            if last_sell_date == "-" or last_buy_date > last_sell_date:
-                is_holding = "보유중"
-        
-        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": is_holding}
+       
+        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
 
@@ -539,9 +533,7 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
 # 🛡️ [수정] 마지막 5일은 매매를 안 했어도(HOLD) 강제로 로그 표에 '관망(디버그)'로 박제합니다!
         if signal != "HOLD" or i >= n - 5:
             logs.append({
-                "날짜": base["Date"].iloc[i], 
-                "종가": close_today, 
-                "신호": signal if signal != "HOLD" else "관망(디버그)", 
+                "날짜": base["Date"].iloc[i], "종가": close_today, "신호": signal, 
                 "체결가": exec_price if exec_price is not None else close_today, 
                 "자산": total, 
                 "이유": reason if reason else "조건확인", 
