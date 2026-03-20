@@ -342,8 +342,14 @@ def summarize_signal_today(df, p):
             if last_buy_date == "-" and _check(curr_idx, 'buy'): last_buy_date = d_str
             if last_sell_date == "-" and _check(curr_idx, 'sell'): last_sell_date = d_str
             if last_buy_date != "-" and last_sell_date != "-": break
+
+        # 🛡️ [최종 방어막] 백엔드에서 직접 보유 여부를 글자로 판정해서 전송
+        is_holding = "미보유"
+        if last_buy_date != "-":
+            if last_sell_date == "-" or last_buy_date > last_sell_date:
+                is_holding = "보유중"
         
-        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
+        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": is_holding}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
 
 
