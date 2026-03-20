@@ -253,7 +253,6 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
 def summarize_signal_today(df, p):
     if df is None or df.empty: return {"label": "N/A", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
     try:
-        # 🧹 [가짜 캔들 삭제됨] 순수하게 존재하는 데이터만 정렬
         df = df.copy().sort_values("Date").reset_index(drop=True)
         if "Close_sig" in df.columns: 
             df["Close"] = pd.to_numeric(df["Close_sig"], errors="coerce")
@@ -264,6 +263,7 @@ def summarize_signal_today(df, p):
 
         idx_now = len(df) - 1
         
+        # 파라미터 안전 변환 (문자열 False 방지)
         def _bool(v): return str(v).strip().lower() in ['true', '1', 't', 'y']
         def _int(v, d=0): 
             try: return int(float(v))
@@ -302,11 +302,21 @@ def summarize_signal_today(df, p):
             df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
+        # [유지] 주말/장시작전 연장 로직
+        import datetime
+        last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
+        today = datetime.datetime.now().date()
+        
+        if last_date < today:
+            dummy_row = df.iloc[-1:].copy()
+            dummy_row['Date'] = pd.to_datetime(today)
+            df = pd.concat([df, dummy_row], ignore_index=True)
+
         last_buy_date, last_sell_date = "-", "-"
-        debug_msg = "" 
+        debug_msg = "" # 💡 [추가] 관망 이유를 담을 빈 바구니
 
         def _check(i, type_):
-            nonlocal debug_msg
+            nonlocal debug_msg # 💡 [추가] 바구니에 접근 허용
             if i < max(60, off_ma_b, off_cl_b, off_ma_s, off_cl_s): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
@@ -337,7 +347,7 @@ def summarize_signal_today(df, p):
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
                         res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
                         
-                        # [UI 피드백] 프리셋 화면에 왜 관망인지 이유 출력
+                        # 💡 [추가] 오늘 시그널인데 관망(False)이라면 그 이유를 바구니에 담기
                         if i == idx_now and not res:
                             t_info = f", 추세:{'✅' if trend_ok else '❌'}" if use_trend_buy else ""
                             debug_msg = f"(종가 vs 이평{t_info})"
@@ -348,56 +358,26 @@ def summarize_signal_today(df, p):
             except Exception as e: 
                 return False
 
-        # 👇👇 [여기서부터 끝까지 덮어쓰기] 👇👇
-        
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
+        # 💡 [수정] 바구니에 이유가 들어있으면 관망 글씨 옆에 딱 붙여줍니다!
         label = f"관망 {debug_msg}".strip() if debug_msg else "관망"
+        
         if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
         
-        # 🛡️ [핵심 업그레이드] 프리셋 탭에도 백테스트와 동일한 '최소 보유일 / 익절 / 손절' 개념 탑재!
-        min_hold = _int(p.get("min_hold_days", 0))
-        sl_pct = float(p.get("stop_loss_pct", 0.0))
-        tp_pct = float(p.get("take_profit_pct", 0.0))
+        # [유지] 사용자님 원본 로직 - 짝대기 던져주기 (UI가 보유상태 계산함)
+        search_range = min(365, len(df)-60)
+        for k in range(search_range):
+            curr_idx = idx_now - k
+            d_str = df["Date"].iloc[curr_idx].strftime("%Y-%m-%d")
+            if last_buy_date == "-" and _check(curr_idx, 'buy'): last_buy_date = d_str
+            if last_sell_date == "-" and _check(curr_idx, 'sell'): last_sell_date = d_str
+            if last_buy_date != "-" and last_sell_date != "-": break
         
-        start_idx = max(60, len(df) - 365)
-        
-        hold_state = False
-        last_buy_date, last_sell_date = "-", "-"
-        hold_days = 0
-        entry_price = 0.0
-        
-        for i in range(start_idx, len(df)):
-            if hold_state:
-                hold_days += 1
-                # 데이터에 고가/저가가 없으면 종가로 대체
-                curr_high = df["High_sig"].iloc[i] if "High_sig" in df.columns else df["Close"].iloc[i]
-                curr_low = df["Low_sig"].iloc[i] if "Low_sig" in df.columns else df["Close"].iloc[i]
-                
-                # 강제 청산 조건 확인
-                stop_hit = (sl_pct > 0 and curr_low <= entry_price * (1 - sl_pct / 100))
-                take_hit = (tp_pct > 0 and curr_high >= entry_price * (1 + tp_pct / 100))
-                s_ok = _check(i, 'sell')
-                
-                # 익절/손절을 맞았거나, (매도조건 달성 & 최소보유일 충족) 시에만 팔기!
-                if stop_hit or take_hit or (s_ok and hold_days >= min_hold):
-                    hold_state = False
-                    last_sell_date = df["Date"].iloc[i].strftime("%Y-%m-%d")
-                    hold_days = 0
-            else:
-                b_ok = _check(i, 'buy')
-                if b_ok:
-                    hold_state = True
-                    last_buy_date = df["Date"].iloc[i].strftime("%Y-%m-%d")
-                    entry_price = df["Close"].iloc[i]
-                    hold_days = 0
-                    
-        is_holding = "보유중" if hold_state else "미보유"
-        
-        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": is_holding}
+        return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
         
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
