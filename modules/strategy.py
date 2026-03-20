@@ -585,6 +585,11 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     pf = (g_profit / g_loss) if g_loss > 0 else 999.0
     win_rate = (wins / total_sells * 100) if total_sells > 0 else 0.0
 
+ # 👇 [추가 3] 계산 다 끝나고 까만색 코드 박스로 화면에 영구 박제!
+    if debug_box:
+        st.code("\n".join(debug_box), language="text")
+    # 👆 ------------------------------------------
+
     return {
         "수익률 (%)": round((asset_curve[-1] - initial_cash)/initial_cash*100, 2),
         "MDD (%)": round(((s - s.cummax()) / s.cummax()).min() * 100, 2),
