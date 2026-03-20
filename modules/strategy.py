@@ -302,7 +302,7 @@ def summarize_signal_today(df, p):
             df["MA_BUY"] = df["Close"].rolling(ma_buy).mean()
             df["MA_SELL"] = df["Close"].rolling(ma_sell).mean()
 
-        # [유지] 주말/장시작전 연장 로직
+        # [복구] 프리셋 탭: 주말 및 장 시작 전, 다음 거래일 시그널 도출용 '가짜 캔들' 연장 로직
         import datetime
         last_date = pd.to_datetime(df['Date'].iloc[-1]).date()
         today = datetime.datetime.now().date()
@@ -313,10 +313,8 @@ def summarize_signal_today(df, p):
             df = pd.concat([df, dummy_row], ignore_index=True)
 
         last_buy_date, last_sell_date = "-", "-"
-        debug_msg = "" # 💡 [추가] 관망 이유를 담을 빈 바구니
 
         def _check(i, type_):
-            nonlocal debug_msg # 💡 [추가] 바구니에 접근 허용
             if i < max(60, off_ma_b, off_cl_b, off_ma_s, off_cl_s): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
@@ -345,13 +343,7 @@ def summarize_signal_today(df, p):
                     
                     if type_ == 'buy':
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
-                        res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
-                        
-                        # 💡 [추가] 오늘 시그널인데 관망(False)이라면 그 이유를 바구니에 담기
-                        if i == idx_now and not res:
-                            t_info = f", 추세:{'✅' if trend_ok else '❌'}" if use_trend_buy else ""
-                            debug_msg = f"(종가 vs 이평{t_info})"
-                        return res
+                        return (buy_cond and trend_ok) if use_trend_buy else buy_cond
                     else:
                         sell_cond = (cl < ma) if sell_op == "<" else (cl > ma)
                         return (sell_cond and (not trend_ok)) if use_trend_sell else sell_cond
@@ -361,14 +353,11 @@ def summarize_signal_today(df, p):
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        # 💡 [수정] 바구니에 이유가 들어있으면 관망 글씨 옆에 딱 붙여줍니다!
-        label = f"관망 {debug_msg}".strip() if debug_msg else "관망"
-        
+        label = "관망"
         if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
         
-        # [유지] 사용자님 원본 로직 - 짝대기 던져주기 (UI가 보유상태 계산함)
         search_range = min(365, len(df)-60)
         for k in range(search_range):
             curr_idx = idx_now - k
