@@ -194,14 +194,8 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
             ma_b = float(df["MA_BUY"].iloc[i - int(offset_ma_buy)])
             ma_s = float(df["MA_SELL"].iloc[i - int(offset_ma_sell)])
             trend_ok = True
-            
-            # 💡 [추가] 시그널 탭에도 추세 텍스트 생성
-            t_str = ""
             if (use_trend_in_buy or use_trend_in_sell) and "MA_SHORT" in df.columns:
-                s_val = df["MA_SHORT"].iloc[i - int(offset_compare_short)]
-                l_val = df["MA_LONG"].iloc[i - int(offset_compare_long)]
-                trend_ok = (s_val >= l_val)
-                t_str = f" [추세: 단기{s_val:.2f} {'≥' if trend_ok else '<'} 장기{l_val:.2f}]"
+                trend_ok = df["MA_SHORT"].iloc[i - int(offset_compare_short)] >= df["MA_LONG"].iloc[i - int(offset_compare_long)]
 
             buy_base = (cl_b > ma_b) if (buy_operator == ">") else (cl_b < ma_b)
             
@@ -212,11 +206,9 @@ def check_signal_today(df, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offse
                 sell_base = (cl_s < ma_s) if (sell_operator == "<") else (cl_s > ma_s)
                 sell_ok = (sell_base and (not trend_ok)) if use_trend_in_sell else sell_base
                 sell_cond_str = f"종가 {cl_s:.2f} {sell_operator} 이평 {ma_s:.2f}"
-                if use_trend_in_sell: sell_cond_str += t_str # 💡 [추가]
             
             buy_ok = (buy_base and trend_ok) if use_trend_in_buy else buy_base
             cond_str = f"종가 {cl_b:.2f} {buy_operator} 이평 {ma_b:.2f}"
-            if use_trend_in_buy: cond_str += t_str # 💡 [추가]
 
         final_buy = buy_ok and market_ok
         st.subheader(f"📌 시그널 ({ref_date})")
@@ -298,10 +290,8 @@ def summarize_signal_today(df, p):
             df = pd.concat([df, dummy_row], ignore_index=True)
 
         last_buy_date, last_sell_date = "-", "-"
-        debug_msg = "" # 💡 [추가] 관망 이유 담을 바구니
 
         def _check(i, type_):
-            nonlocal debug_msg # 💡 [추가]
             if i < max(60, off_ma_b, off_cl_b, off_ma_s, off_cl_s): return False
             try:
                 if type_ == 'sell' and sell_op == "OFF": return False
@@ -330,13 +320,7 @@ def summarize_signal_today(df, p):
                     
                     if type_ == 'buy':
                         buy_cond = (cl > ma) if buy_op == ">" else (cl < ma)
-                        res = (buy_cond and trend_ok) if use_trend_buy else buy_cond
-                        
-                        # 💡 [추가] 오늘(idx_now) 시그널이 관망(False)이면 이유 픽업!
-                        if i == idx_now and not res:
-                            t_info = f", 추세:{'✅' if trend_ok else '❌'}" if use_trend_buy else ""
-                            debug_msg = f"(종가 vs 이평{t_info})"
-                        return res
+                        return (buy_cond and trend_ok) if use_trend_buy else buy_cond
                     else:
                         sell_cond = (cl < ma) if sell_op == "<" else (cl > ma)
                         return (sell_cond and (not trend_ok)) if use_trend_sell else sell_cond
@@ -346,9 +330,7 @@ def summarize_signal_today(df, p):
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
-        # 💡 [수정] 관망일 때만 이유 출력!
-        label = f"관망 {debug_msg}".strip() if debug_msg else "관망"
-        
+        label = "관망"
         if is_buy_now and is_sell_now: label = "⚠️매수/매도 중복"
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
@@ -363,6 +345,8 @@ def summarize_signal_today(df, p):
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": "-"}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
+
+
 
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
