@@ -348,6 +348,8 @@ def summarize_signal_today(df, p):
             except Exception as e: 
                 return False
 
+        # 👇👇 [여기서부터 끝까지 덮어쓰기] 👇👇
+        
         is_buy_now = _check(idx_now, 'buy')
         is_sell_now = _check(idx_now, 'sell')
         
@@ -356,30 +358,48 @@ def summarize_signal_today(df, p):
         elif is_buy_now: label = "매수진입"
         elif is_sell_now: label = "매도청산"
         
-        # 🛡️ [완전 교체] 엉터리 역주행 로직 삭제하고, 백테스트처럼 1년 전부터 정주행하며 상태 추적!
+        # 🛡️ [핵심 업그레이드] 프리셋 탭에도 백테스트와 동일한 '최소 보유일 / 익절 / 손절' 개념 탑재!
+        min_hold = _int(p.get("min_hold_days", 0))
+        sl_pct = float(p.get("stop_loss_pct", 0.0))
+        tp_pct = float(p.get("take_profit_pct", 0.0))
+        
         start_idx = max(60, len(df) - 365)
         
         hold_state = False
         last_buy_date, last_sell_date = "-", "-"
+        hold_days = 0
+        entry_price = 0.0
         
         for i in range(start_idx, len(df)):
-            b_ok = _check(i, 'buy')
-            s_ok = _check(i, 'sell')
-            
-            if hold_state: # 🟢 이미 '보유 중'일 때는 매도 신호만 감시
-                if s_ok:
+            if hold_state:
+                hold_days += 1
+                # 데이터에 고가/저가가 없으면 종가로 대체
+                curr_high = df["High_sig"].iloc[i] if "High_sig" in df.columns else df["Close"].iloc[i]
+                curr_low = df["Low_sig"].iloc[i] if "Low_sig" in df.columns else df["Close"].iloc[i]
+                
+                # 강제 청산 조건 확인
+                stop_hit = (sl_pct > 0 and curr_low <= entry_price * (1 - sl_pct / 100))
+                take_hit = (tp_pct > 0 and curr_high >= entry_price * (1 + tp_pct / 100))
+                s_ok = _check(i, 'sell')
+                
+                # 익절/손절을 맞았거나, (매도조건 달성 & 최소보유일 충족) 시에만 팔기!
+                if stop_hit or take_hit or (s_ok and hold_days >= min_hold):
                     hold_state = False
                     last_sell_date = df["Date"].iloc[i].strftime("%Y-%m-%d")
-            else:          # 🔴 '미보유' 상태일 때는 매수 신호만 감시
+                    hold_days = 0
+            else:
+                b_ok = _check(i, 'buy')
                 if b_ok:
                     hold_state = True
                     last_buy_date = df["Date"].iloc[i].strftime("%Y-%m-%d")
+                    entry_price = df["Close"].iloc[i]
+                    hold_days = 0
                     
         is_holding = "보유중" if hold_state else "미보유"
         
         return {"label": label, "last_buy": last_buy_date, "last_sell": last_sell_date, "last_hold": is_holding}
     except Exception as e: return {"label": f"오류:{e}", "last_buy": "-", "last_sell": "-", "last_hold": "-"}
-
+        
 # --- 백테스트 함수 (상세 로그 버전으로 교체됨) ---
 def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sell, offset_ma_sell, offset_cl_buy, offset_cl_sell, ma_compare_short, ma_compare_long, offset_compare_short, offset_compare_long, initial_cash, stop_loss_pct, take_profit_pct, strategy_behavior, min_hold_days, fee_bps, slip_bps, use_trend_in_buy, use_trend_in_sell, buy_operator, sell_operator, 
                   use_rsi_filter=False, rsi_period=14, rsi_min=30, rsi_max=70,
