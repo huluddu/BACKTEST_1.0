@@ -393,9 +393,6 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     cash, position, hold_days, entry_price = float(initial_cash), 0.0, 0, 0.0
     logs, asset_curve = [], []
 
-    # 👇 [추가 1] 화면에 띄울 메시지를 담을 바구니
-    debug_box = []                   
-
     def _fill(px, type): return px * (1 + (slip_bps + fee_bps)/10000.0) if type=='buy' else px * (1 - (slip_bps + fee_bps)/10000.0)
 
     for i in range(idx0, n):
@@ -494,13 +491,7 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         if sell_operator == "OFF":
             sell_cond = False
             sell_msg = "OFF"
-
-# 👇 [추가 2] 마지막 5일치 속마음을 바구니에 차곡차곡 담습니다.
-        if i >= n - 5:
-            debug_box.append(f"[{base['Date'].iloc[i].strftime('%m/%d')}] 매수조건?: {buy_cond} | {buy_msg}")
-        # 👆 ------------------------------------------
-
-        
+      
         stop_hit, take_hit = False, False
         sold_today = False 
 
@@ -560,14 +551,20 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         total = cash + (position * close_today)
         asset_curve.append(total)
         
-        # [NEW] 로그에 상세 내용(reason_detail) 포함
-        if signal != "HOLD":
+        # 🛡️ [수정] 마지막 5일은 매매를 안 했어도(HOLD) 강제로 로그 표에 '관망(디버그)'로 박제합니다!
+        if signal != "HOLD" or i >= n - 5:
             logs.append({
-                "날짜": base["Date"].iloc[i], "종가": close_today, "신호": signal, 
-                "체결가": exec_price, "자산": total, "이유": reason, 
-                "상세내용": reason_detail, "손절발동": stop_hit, "익절발동": take_hit
+                "날짜": base["Date"].iloc[i], 
+                "종가": close_today, 
+                "신호": signal if signal != "HOLD" else "관망(디버그)", 
+                "체결가": exec_price if exec_price is not None else close_today, 
+                "자산": total, 
+                "이유": reason if reason else "조건확인", 
+                "상세내용": reason_detail if signal != "HOLD" else f"매수통과?:{buy_cond} | {buy_msg}", 
+                "손절발동": stop_hit, 
+                "익절발동": take_hit
             })
-
+            
     if not logs: return {}
     s = pd.Series(asset_curve)
     
