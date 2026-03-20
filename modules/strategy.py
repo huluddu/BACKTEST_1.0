@@ -393,6 +393,9 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
     cash, position, hold_days, entry_price = float(initial_cash), 0.0, 0, 0.0
     logs, asset_curve = [], []
 
+    # 👇 [추가 1] 화면에 띄울 메시지를 담을 바구니
+    debug_box = []                   
+
     def _fill(px, type): return px * (1 + (slip_bps + fee_bps)/10000.0) if type=='buy' else px * (1 - (slip_bps + fee_bps)/10000.0)
 
     for i in range(idx0, n):
@@ -492,11 +495,12 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
             sell_cond = False
             sell_msg = "OFF"
 
-        # 👇👇 [여기에 이 2줄을 복사해서 붙여넣으세요!] 👇👇
-        if i >= n - 5: # 백테스트 마지막 5일 동안의 속마음을 화면에 강제 출력
-            print(f"🔍 [백테스트 뇌구조 {base['Date'].iloc[i].strftime('%m/%d')}] 매수조건 통과?: {buy_cond} | {buy_msg}")
-        # 👆👆 ------------------------------------------ 👆👆
+# 👇 [추가 2] 마지막 5일치 속마음을 바구니에 차곡차곡 담습니다.
+        if i >= n - 5:
+            debug_box.append(f"[{base['Date'].iloc[i].strftime('%m/%d')}] 매수조건?: {buy_cond} | {buy_msg}")
+        # 👆 ------------------------------------------
 
+        
         stop_hit, take_hit = False, False
         sold_today = False 
 
