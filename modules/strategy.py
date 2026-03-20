@@ -552,7 +552,7 @@ def backtest_fast(base, x_sig, x_trd, ma_dict_sig, ma_buy, offset_ma_buy, ma_sel
         asset_curve.append(total)
                
        # 🛡️ [수정] 마지막 5일은 매매를 안 했어도(HOLD) 강제로 로그 표에 '관망(디버그)'로 박제합니다!
-        if signal != "HOLD" or i >= n - 5:
+        if signal != "HOLD": # or i >= n - 5:
             logs.append({
                 "날짜": base["Date"].iloc[i], 
                 "종가": close_today, 
