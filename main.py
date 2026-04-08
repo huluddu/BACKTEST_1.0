@@ -830,7 +830,10 @@ with tab4:
             
             if not df_opt.empty:
                 for col in df_opt.columns:
-                    df_opt[col] = pd.to_numeric(df_opt[col], errors='ignore')
+                    try:
+                        df_opt[col] = pd.to_numeric(df_opt[col])
+                    except (ValueError, TypeError):
+                        pass  # 숫자로 변환할 수 없는 컬럼(문자열 등)은 에러를 무시하고 그대로 둠
                 df_opt = df_opt.round(2)
 
                 st.session_state['opt_results'] = df_opt 
