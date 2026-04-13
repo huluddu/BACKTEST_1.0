@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import random
 import google.generativeai as genai
+import optuna
 
 # 모듈 불러오기
 from modules.utils import load_saved_strategies, save_strategy_to_file, delete_strategy_from_file, parse_choices
