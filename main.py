@@ -10,7 +10,7 @@ import optuna
 # 모듈 불러오기
 from modules.utils import load_saved_strategies, save_strategy_to_file, delete_strategy_from_file, parse_choices
 from modules.data_loader import get_data, get_fundamental_info
-from modules.strategy import prepare_base, check_signal_today, backtest_fast, summarize_signal_today, auto_search_train_test, apply_opt_params
+from modules.strategy import prepare_base, check_signal_today, backtest_fast, summarize_signal_today, auto_search_train_test, apply_opt_params, optuna_objective
 from modules.llm_advisor import ask_gemini_analysis, ask_gemini_chat, ask_gemini_comprehensive_analysis
 
 st.set_page_config(page_title="QuantLab: Modular Ver.", page_icon="⚡", layout="wide")
