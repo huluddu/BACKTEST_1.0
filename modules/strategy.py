@@ -32,7 +32,7 @@ def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_
         "use_trend_in_sell": trial.suggest_categorical("use_trend_in_sell", [True, False]),
         "ma_compare_short": trial.suggest_categorical("ma_compare_short", ma_list),
         "ma_compare_long": trial.suggest_categorical("ma_compare_long", ma_list),
-        "offset_compare_short": trial.suggest_categoricalt("offset_compare_short", offset_list),
+        "offset_compare_short": trial.suggest_categorical("offset_compare_short", offset_list),
         "offset_compare_long": trial.suggest_categorical("offset_compare_long", offset_list),
         
         # 4. 리스크 관리 (손/익절)
