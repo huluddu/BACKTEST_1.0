@@ -3,6 +3,34 @@ import numpy as np
 import streamlit as st
 import random
 from .data_loader import get_data
+import optuna
+
+# Optuna가 실행할 목적 함수
+def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days, params_range):
+    # 1. AI가 제안할 숫자 범위 정의
+    p = {
+        "ma_buy": trial.suggest_int("ma_buy", *params_range['ma_buy']),
+        "ma_sell": trial.suggest_int("ma_sell", *params_range['ma_sell']),
+        "offset_ma_buy": trial.suggest_int("offset_ma_buy", 0, 5),
+        "offset_cl_buy": trial.suggest_int("offset_cl_buy", 0, 5),
+        "stop_loss_pct": trial.suggest_float("stop_loss_pct", 0.0, 5.0, step=0.1),
+        "take_profit_pct": trial.suggest_float("take_profit_pct", 0.0, 10.0, step=0.1),
+        "buy_operator": trial.suggest_categorical("buy_operator", [">", "<"]),
+        "use_trend_in_buy": trial.suggest_categorical("use_trend_in_buy", [True, False]),
+    }
+
+    # 2. 백테스트 실행
+    res = backtest_fast(
+        base_full, x_sig_full, x_trd_full, ma_dict,
+        initial_cash=initial_cash, fee_bps=fee_bps, slip_bps=slip_bps,
+        strategy_behavior=strategy_behavior, min_hold_days=min_hold_days,
+        **p
+    )
+
+    if not res or res.get("총 매매 횟수", 0) < 5: # 최소 매매 횟수 미달 시 패널티
+        return -999.0
+        
+    return res.get("수익률 (%)", -999.0)
 
 # --- 수학 계산 함수들 ---
 def _fast_ma(x: np.ndarray, w: int) -> np.ndarray:
