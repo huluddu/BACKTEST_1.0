@@ -267,7 +267,7 @@ with st.expander("📈 상세 설정 (Offset, 비용 등)", expanded=False):
 # ==========================================
 # 4. 기능 탭 (기업정보, 시그널, 프리셋, 백테스트, 실험실)
 # ==========================================
-tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털"])
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🏢 기업 정보", "🎯 시그널", "📚 PRESETS", "🧪 백테스트", "🧬 실험실", "🧮 손절 계산기", "📊 펀더멘털", "AI 삐빅"])
 
 with tab0:
     st.markdown("### 🏢 기업 기본 정보 (Fundamental)")
@@ -1171,6 +1171,39 @@ with tab6:
                     except Exception as e:
                         st.error(f"오류 발생: {e}")
 
+# --- 탭 7: 실험실 optuna AI ---
+with tab7:
+    st.subheader("🤖 AI 지능형 풀옵션 최적화")
+    st.info("Optuna AI가 이평선, 추세, 익/손절, ATR 등 **모든 변수**를 동시에 조합하여 최적의 꿀통을 찾아냅니다.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        # 변수가 많아졌으므로 기본 탐색 횟수를 200회 이상으로 잡는 것이 좋습니다.
+        n_trials = st.number_input("AI 탐색 횟수 (다중 변수는 최소 100회 이상 권장)", 50, 2000, 200)
+    with col2:
+        target_score = st.selectbox("최적화 목표 (현재 수익률 고정)", ["수익률 (%)"])
+
+    if st.button("🚀 AI 풀옵션 최적화 시작"):
+        study = optuna.create_study(direction="maximize")
+        
+        with st.spinner(f"AI가 수만 가지 경우의 수 중 {n_trials}번의 지능형 탐색을 진행 중입니다..."):
+            study.optimize(lambda trial: optuna_objective(
+                trial, base_full, x_sig_full, x_trd_full, ma_dict, 
+                initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days
+            ), n_trials=n_trials)
+        
+        st.success("🎉 AI 최적화 완료!")
+        
+        st.write(f"### 🏆 최고 수익률: {study.best_value}%")
+        st.write("#### 💡 AI가 찾아낸 기적의 조합")
+        
+        # 보기 좋게 JSON 형태로 출력
+        st.json(study.best_params)
+        
+        if st.button("이 설정 바로 적용하기", key="apply_optuna"):
+            for k, v in study.best_params.items():
+                st.session_state[k] = v
+            st.rerun()
 
 
 
