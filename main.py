@@ -1183,27 +1183,40 @@ with tab7:
     with col2:
         target_score = st.selectbox("최적화 목표 (현재 수익률 고정)", ["수익률 (%)"])
 
-    if st.button("🚀 AI 풀옵션 최적화 시작"):
-        study = optuna.create_study(direction="maximize")
-        
-        with st.spinner(f"AI가 수만 가지 경우의 수 중 {n_trials}번의 지능형 탐색을 진행 중입니다..."):
-            study.optimize(lambda trial: optuna_objective(
-                trial, base_full, x_sig_full, x_trd_full, ma_dict, 
-                initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days
-            ), n_trials=n_trials)
-        
-        st.success("🎉 AI 최적화 완료!")
-        
-        st.write(f"### 🏆 최고 수익률: {study.best_value}%")
-        st.write("#### 💡 AI가 찾아낸 기적의 조합")
-        
-        # 보기 좋게 JSON 형태로 출력
-        st.json(study.best_params)
-        
-        if st.button("이 설정 바로 적용하기", key="apply_optuna"):
-            for k, v in study.best_params.items():
-                st.session_state[k] = v
-            st.rerun()
+    if st.button("🚀 AI 최적화 시작"):
+        with st.spinner("데이터 로딩 및 AI 지능형 탐색 진행 중..."):
+            
+            # 1. AI가 탐색할 모든 이평선(MA) 숫자 목록을 만들어 둡니다.
+            ma_pool = [1] + list(range(5, 121, 5))
+            
+            # 2. 백테스트 엔진에 넘겨줄 데이터를 "먼저" 불러옵니다.
+            # 💡 주의: signal_ticker, trade_ticker 등의 변수명은 main.py 상단의 입력 위젯 변수명과 일치해야 합니다!
+            base_full, x_sig_full, x_trd_full, ma_dict, _, _ = prepare_base(
+                signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool
+            )
+            
+            # 3. 데이터가 없으면 중단
+            if base_full is None or base_full.empty:
+                st.error("데이터를 불러오는 데 실패했습니다. 종목 코드와 날짜를 확인해 주세요.")
+            else:
+                # 4. 데이터가 완벽하게 준비되었으니 AI 탐색(Optuna)을 시작합니다!
+                study = optuna.create_study(direction="maximize")
+                
+                study.optimize(lambda trial: optuna_objective(
+                    trial, base_full, x_sig_full, x_trd_full, ma_dict, 
+                    initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days
+                ), n_trials=n_trials)
+                
+                st.success("🎉 AI 최적화 완료!")
+                
+                st.write(f"### 🏆 최고 수익률: {study.best_value}%")
+                st.write("#### 💡 AI가 찾아낸 기적의 조합")
+                st.json(study.best_params)
+                
+                if st.button("이 설정 바로 적용하기", key="apply_optuna"):
+                    for k, v in study.best_params.items():
+                        st.session_state[k] = v
+                    st.rerun()
 
 
 
