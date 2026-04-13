@@ -6,28 +6,59 @@ from .data_loader import get_data
 import optuna
 
 # Optuna가 실행할 목적 함수
-def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days, params_range):
-    # 1. AI가 제안할 숫자 범위 정의
+def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days):
+    
+    # 🎯 [핵심] 사용자가 원하는 "딱 떨어지는 숫자 리스트" 만들기
+    # 1을 포함하고, 5부터 120까지 5 단위로 리스트 생성 -> [1, 5, 10, 15, ..., 120]
+    ma_list = [1] + list(range(5, 121, 5))
+    offset_list = [1] + list(range(5, 61, 5))
+
     p = {
-        "ma_buy": trial.suggest_int("ma_buy", *params_range['ma_buy']),
-        "ma_sell": trial.suggest_int("ma_sell", *params_range['ma_sell']),
-        "offset_ma_buy": trial.suggest_int("offset_ma_buy", 0, 5),
-        "offset_cl_buy": trial.suggest_int("offset_cl_buy", 0, 5),
-        "stop_loss_pct": trial.suggest_float("stop_loss_pct", 0.0, 5.0, step=0.1),
-        "take_profit_pct": trial.suggest_float("take_profit_pct", 0.0, 10.0, step=0.1),
+        # 1. 매수 조건 (만들어둔 ma_list 안에서만 고르도록 AI에게 지시)
+        "ma_buy": trial.suggest_categorical("ma_buy", ma_list),
+        "offset_ma_buy": trial.suggest_int("offset_ma_buy", offset_list),
+        "offset_cl_buy": trial.suggest_int("offset_cl_buy", offset_list),
         "buy_operator": trial.suggest_categorical("buy_operator", [">", "<"]),
+        
+        # 2. 매도 조건 (역시 ma_list 안에서만 고름)
+        "ma_sell": trial.suggest_categorical("ma_sell", ma_list),
+        "offset_ma_sell": trial.suggest_int("offset_ma_sell", offset_list),
+        "offset_cl_sell": trial.suggest_int("offset_cl_sell", offset_list),
+        "sell_operator": trial.suggest_categorical("sell_operator", ["<", ">", "OFF"]),
+        
+        # 3. 추세 필터 
+        # (여기는 시작점이 5, 60으로 5와 10의 배수라 step만 줘도 5, 10, 15...로 깔끔하게 떨어집니다!)
         "use_trend_in_buy": trial.suggest_categorical("use_trend_in_buy", [True, False]),
+        "use_trend_in_sell": trial.suggest_categorical("use_trend_in_sell", [True, False]),
+        "ma_compare_short": trial.suggest_int("ma_compare_short", ma_list),
+        "ma_compare_long": trial.suggest_int("ma_compare_long", ma_list),
+        "offset_compare_short": trial.suggest_int("offset_compare_short", offset_list),
+        "offset_compare_long": trial.suggest_int("offset_compare_long", offset_list),
+        
+        # 4. 리스크 관리 (손/익절)
+        "stop_loss_pct": trial.suggest_float("stop_loss_pct", 15, 35, step=5),
+        "take_profit_pct": trial.suggest_float("take_profit_pct", 0, 30.0, step=5),
+        
+        # 5. ATR 동적 손절
+        "use_atr_stop": trial.suggest_categorical("use_atr_stop", [True, False]),
+        "atr_multiplier": trial.suggest_float("atr_multiplier", 2.0, 5.0, step=1)
     }
 
-    # 2. 백테스트 실행
+    # 🛑 [AI 속도 향상] 단기 이평선이 장기 이평선보다 크거나 같으면 논리 오류이므로 즉시 폐기(Pruned)
+    if p["use_trend_in_buy"] or p["use_trend_in_sell"]:
+        if p["ma_compare_short"] >= p["ma_compare_long"]:
+            raise optuna.TrialPruned()
+
+    # AI가 제안한 파라미터로 백테스트 실행
     res = backtest_fast(
         base_full, x_sig_full, x_trd_full, ma_dict,
         initial_cash=initial_cash, fee_bps=fee_bps, slip_bps=slip_bps,
         strategy_behavior=strategy_behavior, min_hold_days=min_hold_days,
-        **p
+        **p 
     )
 
-    if not res or res.get("총 매매 횟수", 0) < 5: # 최소 매매 횟수 미달 시 패널티
+    # 평가: 1년에 5번도 매매 안 하는 우연의 일치는 걸러냄 (-999점 부여)
+    if not res or res.get("총 매매 횟수", 0) < 5:
         return -999.0
         
     return res.get("수익률 (%)", -999.0)
