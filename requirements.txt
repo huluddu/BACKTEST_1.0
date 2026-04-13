@@ -11,6 +11,6 @@ oauth2client
 lxml
 finance-datareader
 setuptools
-
+optuna
 
 
