@@ -1186,25 +1186,32 @@ with tab7:
     if st.button("🚀 AI 최적화 시작"):
         with st.spinner("데이터 로딩 및 AI 지능형 탐색 진행 중..."):
             
-            # 1. AI가 탐색할 모든 이평선(MA) 숫자 목록을 만들어 둡니다.
+            # 🛡️ [에러 완벽 차단] Tab 3 안에서 변수를 찾지 못해 튕기는 것을 방지합니다.
+            # UI 위젯에서 값을 가져오되, 못 찾으면 우측의 기본값(500만원, 수수료 0 등)을 강제로 넣습니다.
+            safe_cash = st.session_state.get('initial_cash', 5000000)
+            safe_fee = st.session_state.get('fee_bps', 25)
+            safe_slip = st.session_state.get('slip_bps', 1)
+            safe_behavior = st.session_state.get('strategy_behavior', "1")
+            safe_hold = st.session_state.get('min_hold_days', 0)
+
+            # 1. 탐색할 이평선 풀 준비
             ma_pool = [1] + list(range(5, 121, 5))
             
-            # 2. 백테스트 엔진에 넘겨줄 데이터를 "먼저" 불러옵니다.
-            # 💡 주의: signal_ticker, trade_ticker 등의 변수명은 main.py 상단의 입력 위젯 변수명과 일치해야 합니다!
+            # 2. 데이터 불러오기
             base_full, x_sig_full, x_trd_full, ma_dict, _, _ = prepare_base(
                 signal_ticker, trade_ticker, market_ticker, start_date, end_date, ma_pool
             )
             
-            # 3. 데이터가 없으면 중단
             if base_full is None or base_full.empty:
-                st.error("데이터를 불러오는 데 실패했습니다. 종목 코드와 날짜를 확인해 주세요.")
+                st.error("데이터를 불러오는 데 실패했습니다.")
             else:
-                # 4. 데이터가 완벽하게 준비되었으니 AI 탐색(Optuna)을 시작합니다!
+                # 3. AI 탐색 시작
                 study = optuna.create_study(direction="maximize")
                 
+                # 💡 위에서 안전하게 정의한 safe_ 변수들을 주입합니다!
                 study.optimize(lambda trial: optuna_objective(
                     trial, base_full, x_sig_full, x_trd_full, ma_dict, 
-                    initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days
+                    safe_cash, safe_fee, safe_slip, safe_behavior, safe_hold
                 ), n_trials=n_trials)
                 
                 st.success("🎉 AI 최적화 완료!")
@@ -1217,15 +1224,3 @@ with tab7:
                     for k, v in study.best_params.items():
                         st.session_state[k] = v
                     st.rerun()
-
-
-
-
-
-
-
-
-
-
-
-
