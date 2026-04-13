@@ -16,24 +16,24 @@ def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_
     p = {
         # 1. 매수 조건 (만들어둔 ma_list 안에서만 고르도록 AI에게 지시)
         "ma_buy": trial.suggest_categorical("ma_buy", ma_list),
-        "offset_ma_buy": trial.suggest_int("offset_ma_buy", offset_list),
-        "offset_cl_buy": trial.suggest_int("offset_cl_buy", offset_list),
+        "offset_ma_buy": trial.suggest_categorical("offset_ma_buy", offset_list),
+        "offset_cl_buy": trial.suggest_categorical("offset_cl_buy", offset_list),
         "buy_operator": trial.suggest_categorical("buy_operator", [">", "<"]),
         
         # 2. 매도 조건 (역시 ma_list 안에서만 고름)
         "ma_sell": trial.suggest_categorical("ma_sell", ma_list),
-        "offset_ma_sell": trial.suggest_int("offset_ma_sell", offset_list),
-        "offset_cl_sell": trial.suggest_int("offset_cl_sell", offset_list),
+        "offset_ma_sell": trial.suggest_categorical("offset_ma_sell", offset_list),
+        "offset_cl_sell": trial.suggest_categorical("offset_cl_sell", offset_list),
         "sell_operator": trial.suggest_categorical("sell_operator", ["<", ">", "OFF"]),
         
         # 3. 추세 필터 
         # (여기는 시작점이 5, 60으로 5와 10의 배수라 step만 줘도 5, 10, 15...로 깔끔하게 떨어집니다!)
         "use_trend_in_buy": trial.suggest_categorical("use_trend_in_buy", [True, False]),
         "use_trend_in_sell": trial.suggest_categorical("use_trend_in_sell", [True, False]),
-        "ma_compare_short": trial.suggest_int("ma_compare_short", ma_list),
-        "ma_compare_long": trial.suggest_int("ma_compare_long", ma_list),
-        "offset_compare_short": trial.suggest_int("offset_compare_short", offset_list),
-        "offset_compare_long": trial.suggest_int("offset_compare_long", offset_list),
+        "ma_compare_short": trial.suggest_categorical("ma_compare_short", ma_list),
+        "ma_compare_long": trial.suggest_categorical("ma_compare_long", ma_list),
+        "offset_compare_short": trial.suggest_categoricalt("offset_compare_short", offset_list),
+        "offset_compare_long": trial.suggest_categorical("offset_compare_long", offset_list),
         
         # 4. 리스크 관리 (손/익절)
         "stop_loss_pct": trial.suggest_float("stop_loss_pct", 15, 35, step=5),
