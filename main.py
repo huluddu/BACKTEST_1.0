@@ -1180,7 +1180,6 @@ with tab7:
     with col1:
         n_trials = st.number_input("AI 탐색 횟수 (다중 변수는 최소 100회 이상 권장)", 50, 2000, 200)
     with col2:
-        # 💡 최적화 목표 드롭다운 활성화!
         target_score = st.selectbox("최적화 목표 선택", [
             "수익률 (%)", 
             "다중 목적 (수익률⬆️ + MDD⬇️)", 
@@ -1188,6 +1187,7 @@ with tab7:
             "승률 (%)"
         ])
 
+    # 1️⃣ 첫 번째 버튼: AI 탐색 실행 후 '기억 장치'에 결과 저장
     if st.button("🚀 AI 최적화 시작"):
         with st.spinner("데이터 로딩 및 AI 지능형 탐색 진행 중..."):
             safe_cash = st.session_state.get('initial_cash', 5000000)
@@ -1205,46 +1205,53 @@ with tab7:
             if base_full is None or base_full.empty:
                 st.error("데이터를 불러오는 데 실패했습니다.")
             else:
-                # 💡 목표에 따라 AI의 방향성을 다르게 설정합니다.
                 if target_score == "다중 목적 (수익률⬆️ + MDD⬇️)":
-                    # 수익률은 Maximize, 절대값 MDD는 Minimize!
                     study = optuna.create_study(directions=["maximize", "minimize"])
                 else:
                     study = optuna.create_study(direction="maximize")
                 
-                # target_score 파라미터를 추가로 전달합니다.
                 study.optimize(lambda trial: optuna_objective(
                     trial, base_full, x_sig_full, x_trd_full, ma_dict, 
                     safe_cash, safe_fee, safe_slip, safe_behavior, safe_hold, target_score
                 ), n_trials=n_trials)
                 
-                st.success("🎉 AI 최적화 완료!")
+                # 💡 [핵심 해결책] 찾아낸 결과를 st.session_state에 저장!
+                st.session_state["optuna_study"] = study
+                st.session_state["optuna_target"] = target_score
+                st.success("🎉 AI 최적화 완료! 아래 결과를 확인하세요.")
+
+    # 2️⃣ 두 번째 블록: 저장된 결과가 있으면 화면에 띄우고 "적용 버튼" 생성 (첫 번째 버튼의 바깥)
+    if "optuna_study" in st.session_state:
+        st.divider()
+        study = st.session_state["optuna_study"]
+        t_score = st.session_state["optuna_target"]
+        
+        if t_score == "다중 목적 (수익률⬆️ + MDD⬇️)":
+            st.write("### 🏆 AI가 찾아낸 최적의 타협점들 (Pareto Front)")
+            st.info("수익률과 MDD는 반비례합니다. AI가 찾아낸 훌륭한 **'공격형 ~ 안정형'** 조합들 중 마음에 드는 것을 선택하세요!")
+            
+            best_trials = sorted(study.best_trials, key=lambda t: t.values[0], reverse=True)
+            
+            for i, t in enumerate(best_trials):
+                ret_val = t.values[0]
+                mdd_val = t.values[1]
+                st.write(f"#### 💎 [후보 {i+1}] 수익률: `{ret_val:.2f}%` / MDD: `-{mdd_val:.2f}%`")
+                st.json(t.params)
                 
-                # 💡 다중 목적일 경우 결과 출력 로직 (파레토 프론트)
-                if target_score == "다중 목적 (수익률⬆️ + MDD⬇️)":
-                    st.write("### 🏆 AI가 찾아낸 최적의 타협점들 (Pareto Front)")
-                    st.info("수익률과 MDD는 보통 반비례합니다. AI가 찾아낸 훌륭한 **'공격형 ~ 안정형'** 조합들 중 마음에 드는 것을 선택하세요!")
+                # 적용 버튼을 눌렀을 때 제대로 동작합니다.
+                if st.button(f"[후보 {i+1}] 이 설정 적용하기", key=f"apply_multi_{i}"):
+                    for k, v in t.params.items():
+                        st.session_state[k] = v
+                    st.session_state["preset_name_selector"] = "직접 설정" # 프리셋 해제
+                    st.toast(f"✅ [후보 {i+1}] 설정이 적용되었습니다! '백테스트' 탭을 확인하세요.")
                     
-                    best_trials = study.best_trials
-                    # 보기 편하게 수익률 높은 순서(공격형 -> 안정형)로 정렬
-                    best_trials = sorted(best_trials, key=lambda t: t.values[0], reverse=True)
-                    
-                    for i, t in enumerate(best_trials):
-                        ret_val = t.values[0]
-                        mdd_val = t.values[1] # 절대값 처리된 MDD
-                        st.write(f"#### 💎 [후보 {i+1}] 수익률: `{ret_val:.2f}%` / MDD: `-{mdd_val:.2f}%`")
-                        st.json(t.params)
-                        if st.button(f"[후보 {i+1}] 이 설정 적용하기", key=f"apply_multi_{i}"):
-                            for k, v in t.params.items():
-                                st.session_state[k] = v
-                            st.rerun()
-                else:
-                    # 단일 목적일 경우 기존 로직 유지
-                    st.write(f"### 🏆 최고 {target_score}: {study.best_value}")
-                    st.write("#### 💡 AI가 찾아낸 기적의 조합")
-                    st.json(study.best_params)
-                    
-                    if st.button("이 설정 바로 적용하기", key="apply_optuna"):
-                        for k, v in study.best_params.items():
-                            st.session_state[k] = v
-                        st.rerun()
+        else:
+            st.write(f"### 🏆 최고 {t_score}: {study.best_value}")
+            st.write("#### 💡 AI가 찾아낸 기적의 조합")
+            st.json(study.best_params)
+            
+            if st.button("이 설정 바로 적용하기", key="apply_optuna_single"):
+                for k, v in study.best_params.items():
+                    st.session_state[k] = v
+                st.session_state["preset_name_selector"] = "직접 설정"
+                st.toast("✅ 설정이 사이드바에 적용되었습니다! '백테스트' 탭을 확인하세요.")
