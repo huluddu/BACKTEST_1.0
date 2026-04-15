@@ -1226,6 +1226,13 @@ with tab7:
         study = st.session_state["optuna_study"]
         t_score = st.session_state["optuna_target"]
         
+        # 💡 [핵심 해결책] 에러를 방지하기 위한 "콜백(Callback)" 함수 정의
+        # 화면을 그리기 전에 미리 값을 바꿔치기해서 Streamlit이 불평하지 못하게 만듭니다.
+        def apply_optuna_callback(params_dict):
+            for k, v in params_dict.items():
+                st.session_state[k] = v
+            st.session_state["preset_name_selector"] = "직접 설정"
+            
         if t_score == "다중 목적 (수익률⬆️ + MDD⬇️)":
             st.write("### 🏆 AI가 찾아낸 최적의 타협점들 (Pareto Front)")
             st.info("수익률과 MDD는 반비례합니다. AI가 찾아낸 훌륭한 **'공격형 ~ 안정형'** 조합들 중 마음에 드는 것을 선택하세요!")
@@ -1238,20 +1245,23 @@ with tab7:
                 st.write(f"#### 💎 [후보 {i+1}] 수익률: `{ret_val:.2f}%` / MDD: `-{mdd_val:.2f}%`")
                 st.json(t.params)
                 
-                # 적용 버튼을 눌렀을 때 제대로 동작합니다.
-                if st.button(f"[후보 {i+1}] 이 설정 적용하기", key=f"apply_multi_{i}"):
-                    for k, v in t.params.items():
-                        st.session_state[k] = v
-                    st.session_state["preset_name_selector"] = "직접 설정" # 프리셋 해제
-                    st.toast(f"✅ [후보 {i+1}] 설정이 적용되었습니다! '백테스트' 탭을 확인하세요.")
+                # 💡 [수정] on_click 속성을 사용하여 콜백 함수로 넘겨줍니다.
+                st.button(
+                    f"[후보 {i+1}] 이 설정 적용하기", 
+                    key=f"apply_multi_{i}", 
+                    on_click=apply_optuna_callback, 
+                    args=(t.params,)
+                )
                     
         else:
             st.write(f"### 🏆 최고 {t_score}: {study.best_value}")
             st.write("#### 💡 AI가 찾아낸 기적의 조합")
             st.json(study.best_params)
             
-            if st.button("이 설정 바로 적용하기", key="apply_optuna_single"):
-                for k, v in study.best_params.items():
-                    st.session_state[k] = v
-                st.session_state["preset_name_selector"] = "직접 설정"
-                st.toast("✅ 설정이 사이드바에 적용되었습니다! '백테스트' 탭을 확인하세요.")
+            # 💡 [수정] on_click 속성을 사용하여 콜백 함수로 넘겨줍니다.
+            st.button(
+                "이 설정 바로 적용하기", 
+                key="apply_optuna_single", 
+                on_click=apply_optuna_callback, 
+                args=(study.best_params,)
+            )
