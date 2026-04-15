@@ -6,28 +6,24 @@ from .data_loader import get_data
 import optuna
 
 # Optuna가 실행할 목적 함수
-def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days):
+# 💡 인자 맨 끝에 target_score 추가!
+def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days, target_score="수익률 (%)"):
     
-    # 🎯 [핵심] 사용자가 원하는 "딱 떨어지는 숫자 리스트" 만들기
-    # 1을 포함하고, 5부터 120까지 5 단위로 리스트 생성 -> [1, 5, 10, 15, ..., 120]
+    # 🎯 사용자가 원하는 "딱 떨어지는 숫자 리스트" 만들기
     ma_list = [1] + list(range(5, 121, 5))
     offset_list = [1] + list(range(5, 61, 5))
 
     p = {
-        # 1. 매수 조건 (만들어둔 ma_list 안에서만 고르도록 AI에게 지시)
         "ma_buy": trial.suggest_categorical("ma_buy", ma_list),
         "offset_ma_buy": trial.suggest_categorical("offset_ma_buy", offset_list),
         "offset_cl_buy": trial.suggest_categorical("offset_cl_buy", offset_list),
         "buy_operator": trial.suggest_categorical("buy_operator", [">", "<"]),
         
-        # 2. 매도 조건 (역시 ma_list 안에서만 고름)
         "ma_sell": trial.suggest_categorical("ma_sell", ma_list),
         "offset_ma_sell": trial.suggest_categorical("offset_ma_sell", offset_list),
         "offset_cl_sell": trial.suggest_categorical("offset_cl_sell", offset_list),
         "sell_operator": trial.suggest_categorical("sell_operator", ["<", ">", "OFF"]),
         
-        # 3. 추세 필터 
-        # (여기는 시작점이 5, 60으로 5와 10의 배수라 step만 줘도 5, 10, 15...로 깔끔하게 떨어집니다!)
         "use_trend_in_buy": trial.suggest_categorical("use_trend_in_buy", [True, False]),
         "use_trend_in_sell": trial.suggest_categorical("use_trend_in_sell", [True, False]),
         "ma_compare_short": trial.suggest_categorical("ma_compare_short", ma_list),
@@ -35,13 +31,11 @@ def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_
         "offset_compare_short": trial.suggest_categorical("offset_compare_short", offset_list),
         "offset_compare_long": trial.suggest_categorical("offset_compare_long", offset_list),
         
-        # 4. 리스크 관리 (손/익절)
         "stop_loss_pct": trial.suggest_float("stop_loss_pct", 15, 35, step=5),
-        "take_profit_pct": trial.suggest_float("take_profit_pct", 0, 30.0, step=5),
+        "take_profit_pct": trial.suggest_float("take_profit_pct", 0, 35, step=5),
         
-        # 5. ATR 동적 손절
         "use_atr_stop": trial.suggest_categorical("use_atr_stop", [True, False]),
-        "atr_multiplier": trial.suggest_float("atr_multiplier", 2.0, 5.0, step=1)
+        "atr_multiplier": trial.suggest_float("atr_multiplier", 2.0, 4.0, step=1)
     }
 
     # 🛑 [AI 속도 향상] 단기 이평선이 장기 이평선보다 크거나 같으면 논리 오류이므로 즉시 폐기(Pruned)
@@ -57,11 +51,23 @@ def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_
         **p 
     )
 
-    # 평가: 1년에 5번도 매매 안 하는 우연의 일치는 걸러냄 (-999점 부여)
+    # 🛑 매매 횟수 미달 시 최악의 점수 반환
     if not res or res.get("총 매매 횟수", 0) < 5:
+        if target_score == "다중 목적 (수익률⬆️ + MDD⬇️)":
+            return -999.0, 999.0 # 다중 목적일 땐 두 개의 페널티 점수 반환
         return -999.0
         
-    return res.get("수익률 (%)", -999.0)
+    # 🎯 [핵심] 목표(target_score)에 따라 AI에게 돌려줄 점수를 다르게 세팅!
+    if target_score == "다중 목적 (수익률⬆️ + MDD⬇️)":
+        # MDD는 원래 음수(-)입니다. AI가 헷갈리지 않게 절대값(abs)을 씌워서 0에 가깝게 최소화(minimize) 시킵니다.
+        mdd_abs = abs(res.get("MDD (%)", 999.0))
+        return res.get("수익률 (%)", -999.0), mdd_abs
+    elif target_score == "Profit Factor":
+        return res.get("Profit Factor", 0.0)
+    elif target_score == "승률 (%)":
+        return res.get("승률 (%)", 0.0)
+    else:
+        return res.get("수익률 (%)", -999.0)
 
 # --- 수학 계산 함수들 ---
 def _fast_ma(x: np.ndarray, w: int) -> np.ndarray:
