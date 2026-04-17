@@ -73,7 +73,6 @@ _init_default_state()
 # [복구 완료] 사용자님의 원본 프리셋 데이터 전체
 # ---------------------------------------------------------
 DEFAULT_PRESETS = {
-    "SOXL": {"signal_ticker_input": "SOXL", "trade_ticker_input": "SOXL", "market_ticker_input": "SPY", "buy_operator": "<", "sell_operator": ">", "strategy_behavior": "1. 포지션 없으면 매수 / 보유 중이면 매도", "ma_buy": 1, "ma_sell": 1, "offset_cl_buy": 5, "offset_cl_sell": 1, "offset_ma_buy": 50, "offset_ma_sell": 20, "use_trend_in_buy": true, "use_trend_in_sell": true, "ma_compare_short": 20, "ma_compare_long": 50, "offset_compare_short": 50, "offset_compare_long": 50, "stop_loss_pct": 0.0, "take_profit_pct": 35.0, "min_hold_days": 0, "fee_bps": 25, "slip_bps": 1, "use_market_filter": false, "market_ma_period": 200, "use_bollinger": false, "bb_period": 20, "bb_std": 2.0, "bb_entry_type": "상단선 돌파 (추세)", "bb_exit_type": "중심선(MA) 이탈", "use_rsi_filter": false, "rsi_period": 14, "rsi_max": 70, "use_atr_stop": true, "atr_multiplier": 3.0}
 }
 
 # 로컬 파일(구글 시트 등)에 저장된 전략이 있다면 합치기
