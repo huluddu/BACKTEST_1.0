@@ -377,22 +377,28 @@ with tab2:
                         atr_multiplier=float(p.get("atr_multiplier", 2.0))
                     )
                     
-                    # 보유 여부 및 날짜 표시 로직
+                    # 보유 여부, 날짜, 매수가 표시 로직
                     hold_status = "⚪ 미보유"
+                    buy_price_display = "-" # 매수가 초기값
                     trades = bt_res.get('매매 로그', [])
                     
                     if trades:
                         last_trade = trades[-1]
                         if last_trade.get('신호') == 'BUY':
                             buy_date = last_trade.get('날짜')
+                            buy_price = last_trade.get('체결가', 0) # 👈 체결가 가져오기
+                            
                             if isinstance(buy_date, pd.Timestamp):
                                 buy_date_str = buy_date.strftime("%Y-%m-%d")
                             else:
                                 buy_date_str = str(buy_date)[:10]
+                                
                             hold_status = f"🟢 보유중 ({buy_date_str})"
+                            buy_price_display = f"${buy_price:,.2f}" # 👈 매수가 포맷팅
                     
                     row_data.update({
                         "보유여부": hold_status,
+                        "매수가": buy_price_display, # 👈 결과 행에 추가
                         "총 수익률(%)": f"{bt_res.get('수익률 (%)', 0)}%",
                         "MDD(%)": f"{bt_res.get('MDD (%)', 0)}%",
                         "승률(%)": f"{bt_res.get('승률 (%)', 0)}%",
@@ -416,7 +422,8 @@ with tab2:
                 
                 st.success("✅ 분석 완료!")
                 
-                cols_order = ["전략명", "티커", "보유여부", "현재상태", "총 수익률(%)", "MDD(%)", "승률(%)", "매매횟수"]
+                # 정렬 및 컬럼 순서 (매수가를 보유여부 옆에 배치)
+                cols_order = ["전략명", "티커", "보유여부", "매수가", "현재상태", "총 수익률(%)", "MDD(%)", "승률(%)", "매매횟수"]
                 final_cols = [c for c in cols_order if c in df_result.columns]
                 
                 st.dataframe(
@@ -426,8 +433,9 @@ with tab2:
                     column_config={
                         "전략명": st.column_config.TextColumn("전략", width="medium"),
                         "티커": st.column_config.TextColumn("매매 종목", width="small"),
-                        "보유여부": st.column_config.TextColumn("보유 상태", width="medium", help="백테스트 상 현재 매수 상태인지 여부 (매수일)"),
-                        "현재상태": st.column_config.TextColumn("오늘 시그널", help="오늘자 매수/매도 시그널"),
+                        "보유여부": st.column_config.TextColumn("보유 상태", width="medium"),
+                        "매수가": st.column_config.TextColumn("진입 가격", width="small", help="현재 보유 중인 포지션의 매수 단가"), # 👈 설정 추가
+                        "현재상태": st.column_config.TextColumn("오늘 시그널"),
                     }
                 )
             else:
