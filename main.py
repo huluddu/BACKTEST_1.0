@@ -1192,6 +1192,9 @@ with tab7:
             "승률 (%)"
         ])
 
+    # 💡 1. [여기에 체크박스 추가!]
+    disable_tp_checkbox = st.checkbox("🚫 익절(Take Profit) 탐색 끄기 (항상 0%로 고정)", value=False)
+
     # 1️⃣ 첫 번째 버튼: AI 탐색 실행 후 '기억 장치'에 결과 저장
     if st.button("🚀 AI 최적화 시작"):
         with st.spinner("데이터 로딩 및 AI 지능형 탐색 진행 중..."):
