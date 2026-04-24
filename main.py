@@ -1220,7 +1220,7 @@ with tab7:
                 
                 study.optimize(lambda trial: optuna_objective(
                     trial, base_full, x_sig_full, x_trd_full, ma_dict, 
-                    safe_cash, safe_fee, safe_slip, safe_behavior, safe_hold, target_score
+                    safe_cash, safe_fee, safe_slip, safe_behavior, safe_hold, target_score,
                     disable_tp=disable_tp_checkbox
                 ), n_trials=n_trials)
                 
