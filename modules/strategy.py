@@ -7,7 +7,7 @@ import optuna
 
 # Optuna가 실행할 목적 함수
 # 💡 인자 맨 끝에 target_score 추가!
-def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days, target_score="수익률 (%)"):
+def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_cash, fee_bps, slip_bps, strategy_behavior, min_hold_days, target_score="수익률 (%)", disable_tp=False):
     
     # 🎯 사용자가 원하는 "딱 떨어지는 숫자 리스트" 만들기
     ma_list = [1] + list(range(5, 121, 5))
