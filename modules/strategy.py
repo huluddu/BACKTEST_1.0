@@ -32,11 +32,16 @@ def optuna_objective(trial, base_full, x_sig_full, x_trd_full, ma_dict, initial_
         "offset_compare_long": trial.suggest_categorical("offset_compare_long", offset_list),
         
         "stop_loss_pct": trial.suggest_float("stop_loss_pct", 15, 35, step=5),
-        "take_profit_pct": trial.suggest_float("take_profit_pct", 0, 35, step=5),
         
         "use_atr_stop": trial.suggest_categorical("use_atr_stop", [True, False]),
         "atr_multiplier": trial.suggest_float("atr_multiplier", 2.0, 4.0, step=1)
     }
+
+    # 💡 2. 체크박스 상태에 따라 익절 값 세팅
+    if disable_tp:
+        p["take_profit_pct"] = 0.0  # 체크했으면 무조건 0으로 고정 (AI 탐색 안 함)
+    else:
+        p["take_profit_pct"] = trial.suggest_float("take_profit_pct", 0, 30.0, step=5) # 안 했으면 기존처럼 탐색
 
     # 🛑 [AI 속도 향상] 단기 이평선이 장기 이평선보다 크거나 같으면 논리 오류이므로 즉시 폐기(Pruned)
     if p["use_trend_in_buy"] or p["use_trend_in_sell"]:
